@@ -139,6 +139,10 @@ for key, default in {
     "selected_job": None,
     "analysis": None,
     "cover_letter": "",
+    "tailored_resume": "",
+    "analyze_ats": True,
+    "analyze_cover": True,
+    "analyze_tailor": False,
     "error": None,
     "searching": False,
     "analyzing": False,
@@ -281,6 +285,7 @@ with st.sidebar:
             st.session_state.selected_job = None
             st.session_state.analysis = None
             st.session_state.cover_letter = ""
+            st.session_state.tailored_resume = ""
             st.session_state.error = None
             st.rerun()
 
@@ -338,6 +343,7 @@ if search_clicked:
     st.session_state.selected_job = None
     st.session_state.analysis = None
     st.session_state.cover_letter = ""
+    st.session_state.tailored_resume = ""
     st.session_state.error = None
     st.session_state.step = "search"
     st.session_state.searching = True
@@ -442,9 +448,20 @@ if st.session_state.step == "analyze":
         label_visibility="collapsed",
     )
 
+    st.markdown("#### 🛠️ Analysis Options")
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    with col_opt1:
+        st.session_state.analyze_ats = st.checkbox("📊 ATS Score & Feedback", value=st.session_state.get("analyze_ats", True))
+    with col_opt2:
+        st.session_state.analyze_cover = st.checkbox("✍️ Generate Cover Letter", value=st.session_state.get("analyze_cover", True))
+    with col_opt3:
+        st.session_state.analyze_tailor = st.checkbox("✨ Auto-Revise Resume", value=st.session_state.get("analyze_tailor", False))
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     col_btn, col_back = st.columns([2, 6])
     with col_btn:
-        analyze_btn = st.button("🚀 Run ATS Analysis", type="primary",
+        analyze_btn = st.button("🚀 Run Selected Analysis", type="primary",
                                 use_container_width=True,
                                 disabled=st.session_state.analyzing)
     with col_back:
@@ -465,34 +482,48 @@ if st.session_state.step == "analyze":
 
                     job_desc = job.get("description", "")
                     job_title_val = job.get("title", st.session_state.job_title)
+                    
+                    st.session_state.analysis = None
+                    st.session_state.cover_letter = ""
+                    st.session_state.tailored_resume = ""
 
                     # Call 1: ATS analysis
-                    scorer = GeminiATSScorer()
-                    analysis = scorer.analyze_resume(
-                        resume_text=resume,
-                        job_title=job_title_val,
-                        job_description=job_desc,
-                    )
+                    if st.session_state.analyze_ats:
+                        scorer = GeminiATSScorer()
+                        analysis = scorer.analyze_resume(
+                            resume_text=resume,
+                            job_title=job_title_val,
+                            job_description=job_desc,
+                        )
+                        st.session_state.analysis = analysis
 
                     # Call 2: Cover letter
-                    cover_tool = GeminiCoverLetterTool()
-                    cover_raw = cover_tool._run(
-                        job_info=json.dumps({
-                            "title": job_title_val,
-                            "company": job.get("company", ""),
-                            "description": job_desc,
-                        }),
-                        resume_text=resume,
-                        ats_analysis=json.dumps(analysis),
-                    )
-                    try:
-                        cover_data = json.loads(cover_raw)
-                        cover_letter_text = cover_data.get("cover_letter", cover_raw)
-                    except Exception:
-                        cover_letter_text = cover_raw
+                    if st.session_state.analyze_cover:
+                        cover_tool = GeminiCoverLetterTool()
+                        cover_raw = cover_tool._run(
+                            job_info=json.dumps({
+                                "title": job_title_val,
+                                "company": job.get("company", ""),
+                                "description": job_desc,
+                            }),
+                            resume_text=resume,
+                            ats_analysis=json.dumps(st.session_state.get("analysis", {}))
+                        )
+                        try:
+                            cover_data = json.loads(cover_raw)
+                            st.session_state.cover_letter = cover_data.get("cover_letter", cover_raw)
+                        except Exception:
+                            st.session_state.cover_letter = cover_raw
+                            
+                    # Call 3: Tailor Resume
+                    if st.session_state.analyze_tailor:
+                        from tools.gemini_resume_builder import GeminiResumeBuilder
+                        builder = GeminiResumeBuilder()
+                        st.session_state.tailored_resume = builder.build_resume(
+                            resume_text=resume,
+                            job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
+                        )
 
-                    st.session_state.analysis = analysis
-                    st.session_state.cover_letter = cover_letter_text
                     st.session_state.step = "results"
                     st.session_state.error = None
 
@@ -537,11 +568,13 @@ if st.session_state.step == "results":
         </div>
         """, unsafe_allow_html=True)
 
-        tab1, tab2 = st.tabs(["📊 ATS Analysis", "✍️ Cover Letter"])
+        tab1, tab2, tab3 = st.tabs(["📊 ATS Analysis", "✍️ Cover Letter", "✨ Tailored Resume"])
 
         # ── TAB 1: ATS Analysis ───────────────────────────────────────────────
         with tab1:
-            if not analysis:
+            if not analysis and not st.session_state.analyze_ats:
+                st.info("ATS Analysis was not requested for this job.")
+            elif not analysis:
                 st.warning("⚠️ No analysis returned.")
             else:
                 method = analysis.get("analysis_method", "Google Gemini")
@@ -668,7 +701,9 @@ if st.session_state.step == "results":
 
         # ── TAB 2: Cover Letter ───────────────────────────────────────────────
         with tab2:
-            if not cover_letter:
+            if not cover_letter and not st.session_state.analyze_cover:
+                st.info("Cover Letter was not requested for this job.")
+            elif not cover_letter:
                 st.warning("⚠️ No cover letter was generated.")
             else:
                 st.markdown("### ✍️ Generated Cover Letter")
@@ -680,6 +715,27 @@ if st.session_state.step == "results":
                     file_name=f"cover_letter_{job.get('title','job').replace(' ', '_')}.txt",
                     mime="text/plain",
                 )
+                
+        # ── TAB 3: Tailored Resume ───────────────────────────────────────────────
+        with tab3:
+            tailored = st.session_state.get("tailored_resume", "")
+            if not tailored:
+                st.info("Auto-Revise Resume was not requested. Go back and check the box to generate a tailored ATS-optimized resume.")
+            else:
+                st.markdown("### ✨ Your Tailored Resume")
+                st.markdown("This resume has been completely rewritten and optimized for ATS systems based on the chosen job description. It includes a tailored professional summary and keyword-optimized bullet points with quantified achievements.")
+                st.markdown("<hr>", unsafe_allow_html=True)
+                
+                # Render the markdown directly for clean formatting
+                st.markdown(tailored)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.download_button(
+                    label="⬇️ Download Tailored Resume (.md)",
+                    data=tailored,
+                    file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.md",
+                    mime="text/markdown",
+                )
 
         # Analyze another job button
         st.markdown("<br>", unsafe_allow_html=True)
@@ -690,6 +746,7 @@ if st.session_state.step == "results":
                 st.session_state.selected_job = None
                 st.session_state.analysis = None
                 st.session_state.cover_letter = ""
+                st.session_state.tailored_resume = ""
                 st.rerun()
 
 
