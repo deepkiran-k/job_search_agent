@@ -248,10 +248,11 @@ with st.sidebar:
     # Country selection
     country_options = {
         "us": "🇺🇸 United States",
-        "gb": "�� United Kingdom",
+        "gb": "🇬🇧 United Kingdom",
         "ca": "🇨🇦 Canada",
-        "au": "�� Australia",
+        "au": "🇦🇺 Australia",
         "in": "🇮🇳 India",
+        "ae": "🇦🇪 United Arab Emirates",
         "de": "🇩🇪 Germany",
         "fr": "🇫🇷 France",
         "it": "🇮🇹 Italy",
@@ -317,10 +318,10 @@ with st.sidebar:
 
     st.markdown("""
     <div style="font-size:0.7rem;color:#8b949e;text-align:center;margin-top:1rem;">
-      Step 1: Adzuna API for job listings<br>
+      Step 1: Adzuna + RapidAPI (Google Jobs)<br>
       Step 2: You pick the best fit<br>
       Step 3: Gemini analyzes your resume<br>
-      <span style="color:#1f6feb;">Powered by Google Gemini + Adzuna</span>
+      <span style="color:#1f6feb;">Powered by Google Gemini + Adzuna + RapidAPI</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -351,18 +352,70 @@ if search_clicked:
 
     if st.session_state.searching:
         st.session_state.searching = False
-        with st.spinner(f"🔍 Searching Adzuna for **{st.session_state.job_title}** positions..."):
+        with st.spinner(f"🔍 Searching Adzuna & RapidAPI for **{st.session_state.job_title}** positions..."):
             try:
                 from utils.adzuna_client import search_adzuna
-                jobs = search_adzuna(
-                    job_title=st.session_state.job_title,
-                    location=st.session_state.location,
-                    max_results=20,
-                    country=st.session_state.get('country', 'us')
-                )
-                st.session_state.jobs = jobs
+                from utils.rapidapi_client import search_jsearch
+                import concurrent.futures
+                
+                all_jobs = []
+                
+                # Run both searches concurrently to save time
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    f_adzuna = executor.submit(
+                        search_adzuna,
+                        job_title=st.session_state.job_title,
+                        location=st.session_state.location,
+                        max_results=15, # Distribute the load
+                        country=st.session_state.get('country', 'us'),
+                        experience=st.session_state.experience
+                    )
+                    
+                    f_jsearch = executor.submit(
+                        search_jsearch,
+                        job_title=st.session_state.job_title,
+                        location=st.session_state.location,
+                        max_results=15,
+                        experience=st.session_state.experience
+                    )
+                    
+                    try:
+                        adzuna_jobs = f_adzuna.result()
+                        all_jobs.extend(adzuna_jobs)
+                    except Exception as e:
+                        print(f"Adzuna fetch failed: {e}")
+                        
+                    try:
+                        jsearch_jobs = f_jsearch.result()
+                        all_jobs.extend(jsearch_jobs)
+                    except Exception as e:
+                        print(f"JSearch fetch failed: {e}")
+
+                # Deduplicate by URL or exact title+company match
+                seen_urls = set()
+                seen_combos = set()
+                unique_jobs = []
+                
+                for job in all_jobs:
+                    url = job.get('url', '')
+                    combo = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
+                    
+                    if url and url in seen_urls:
+                        continue
+                    if combo in seen_combos:
+                        continue
+                        
+                    seen_urls.add(url)
+                    seen_combos.add(combo)
+                    unique_jobs.append(job)
+
+                # Sort by date (newest first). Both APIs provide ISO-ish strings that sort alphabetically well enough.
+                # If 'posted_date' is missing, fallback to empty string (which drops to bottom when reversed).
+                unique_jobs.sort(key=lambda x: str(x.get('posted_date', '')), reverse=True)
+
+                st.session_state.jobs = unique_jobs
                 st.session_state.step = "select_job"
-                if not jobs:
+                if not unique_jobs:
                     st.session_state.error = "No jobs found. Try a broader title or different location."
             except Exception as e:
                 st.session_state.error = f"Job search failed: {e}"
@@ -393,6 +446,11 @@ if search_clicked:
             url         = job.get("url", "")
             posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
             contract    = job.get("contract_type", "")
+            source      = job.get("source", "Unknown")
+
+            source_color = "#1f3a5f" if "JSearch" in source else "#1a3a2a" if "Adzuna" in source else "#3a3a3a"
+            tag_color = "#79c0ff" if "JSearch" in source else "#56d364" if "Adzuna" in source else "#e6edf3"
+            source_html = f'<span style="background:{source_color};color:{tag_color};padding:0.15rem 0.5rem;border-radius:4px;font-size:0.7rem;border:1px solid {tag_color};">{source}</span>'
 
             salary_html   = f'<span class="tag tag-green">{salary}</span>' if salary else ""
             contract_html = f'<span class="tag tag-yellow">{contract}</span>' if contract else ""
@@ -406,6 +464,7 @@ if search_clicked:
                 <div>
                   <div style="font-size:1rem;font-weight:600;color:#e6edf3;">{i+1}. {title}</div>
                   <div style="font-size:0.85rem;color:#8b949e;margin-top:0.15rem;">🏢 {company} &nbsp;·&nbsp; 📍 {loc}</div>
+                  <div style="margin-top:0.3rem;">{source_html}</div>
                 </div>
                 <div style="text-align:right;">
                   {salary_html}{contract_html}
@@ -760,7 +819,7 @@ if st.session_state.step == "search" and not st.session_state.error:
       <div style="font-size:1.5rem;font-weight:600;color:#e6edf3;margin-bottom:0.5rem;">Ready to find your next role</div>
       <div style="color:#8b949e;max-width:500px;margin:0 auto;line-height:1.6;">
         Set your search parameters in the sidebar and click <strong>Find Jobs</strong>.<br><br>
-        <span style="color:#1f6feb;">Step 1</span> — Real job listings fetched instantly from Adzuna (no AI quota used)<br>
+        <span style="color:#1f6feb;">Step 1</span> — Real job listings fetched instantly from Adzuna & RapidAPI (Google Jobs)<br>
         <span style="color:#d29922;">Step 2</span> — You pick the job that fits you best<br>
         <span style="color:#238636;">Step 3</span> — Gemini analyzes your resume & writes a tailored cover letter
       </div>
