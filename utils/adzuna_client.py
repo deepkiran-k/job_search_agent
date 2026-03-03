@@ -7,6 +7,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# If user types a country name instead of a city, skip `where` for Adzuna
+# (the country is already encoded in the API URL via the country code)
+COUNTRY_NAMES = {
+    "india", "united states", "usa", "us", "united kingdom", "uk", "canada",
+    "australia", "germany", "france", "italy", "netherlands", "poland",
+    "spain", "brazil", "mexico", "south africa", "new zealand", "singapore",
+    "united arab emirates", "uae",
+}
 
 def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "") -> List[Dict[str, Any]]:
     """
@@ -53,9 +61,12 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
         REMOTE_KEYWORDS = {"remote", "anywhere", "flexible", "work from home", "wfh", "virtual"}
         is_remote = where.lower() in REMOTE_KEYWORDS or any(rk in where.lower() for rk in REMOTE_KEYWORDS)
 
+        # Skip `where` if user typed a country name — Adzuna already scopes by
+        # country via the URL path, and passing the country name as `where`
+        # causes 0 results (expects a city/region).
         if is_remote:
             what = f"{what} remote"
-        elif where:
+        elif where and where.lower() not in COUNTRY_NAMES:
             params["where"] = where
             
         params["what"] = what
@@ -100,7 +111,7 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
                 "title": title,
                 "company": company,
                 "location": result.get("location", {}).get("display_name", location),
-                "description": desc[:500],
+                "description": desc[:2000],
                 "salary_min": result.get("salary_min"),
                 "salary_max": result.get("salary_max"),
                 "salary_display": _format_salary(result.get("salary_min"), result.get("salary_max")),

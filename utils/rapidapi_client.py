@@ -6,15 +6,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "") -> List[Dict[str, Any]]:
+# Map country codes to full names for JSearch query fallback
+COUNTRY_CODE_TO_NAME = {
+    "us": "United States", "gb": "United Kingdom", "ca": "Canada",
+    "au": "Australia", "in": "India", "ae": "United Arab Emirates",
+    "de": "Germany", "fr": "France", "it": "Italy", "nl": "Netherlands",
+    "pl": "Poland", "es": "Spain", "br": "Brazil", "mx": "Mexico",
+    "za": "South Africa", "nz": "New Zealand", "sg": "Singapore",
+}
+
+def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us") -> List[Dict[str, Any]]:
     """
     Search JSearch (Google Jobs via RapidAPI) for fresh job listings.
     
     Args:
         job_title: Job title to search for
-        location: Location (city, state, or "remote")
+        location: Location (city, state, or "remote") — optional
         max_results: Maximum number of results to return
         experience: Experience level required (e.g. '0-1 years')
+        country: Country code (e.g. 'us', 'in') — used as fallback when location is blank
         
     Returns:
         List of job dictionaries matching the standard internal format
@@ -29,9 +39,14 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         url = "https://jsearch.p.rapidapi.com/search"
         
         # Build query string
+        # If no specific location given, fall back to the selected country name
+        effective_location = location.strip()
+        if not effective_location:
+            effective_location = COUNTRY_CODE_TO_NAME.get(country.lower(), "")
+
         query = f"{job_title}"
-        if location:
-            query += f" in {location}"
+        if effective_location:
+            query += f" in {effective_location}"
             
         headers = {
             "x-rapidapi-key": api_key,
@@ -120,7 +135,7 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
                 "title": title,
                 "company": company,
                 "location": location_display,
-                "description": desc[:500] if desc else "",
+                "description": desc[:2000] if desc else "",
                 "salary_min": salary_min,
                 "salary_max": salary_max,
                 "salary_display": salary_display,

@@ -243,7 +243,7 @@ with st.sidebar:
 
     st.markdown("### 🔍 Search Parameters")
     job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,  placeholder="e.g. Data Scientist")
-    location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. New York, Remote")
+    location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
     
     # Country selection
     country_options = {
@@ -376,7 +376,8 @@ if search_clicked:
                         job_title=st.session_state.job_title,
                         location=st.session_state.location,
                         max_results=15,
-                        experience=st.session_state.experience
+                        experience=st.session_state.experience,
+                        country=st.session_state.get('country', 'us')
                     )
                     
                     try:
@@ -420,68 +421,68 @@ if search_clicked:
             except Exception as e:
                 st.session_state.error = f"Job search failed: {e}"
                 st.session_state.step = "search"
-        # Removed st.rerun() to allow immediate rendering of the next step
-    
-    
-    # ══════════════════════════════════════════════════════════════════════════════
-    # STEP 2: Show job listings — user selects one
-    # ══════════════════════════════════════════════════════════════════════════════
-    if st.session_state.step == "select_job":
-        jobs = st.session_state.jobs
-    
-        if st.session_state.error:
-            st.error(f"❌ {st.session_state.error}")
-        elif not jobs:
-            st.warning("⚠️ No jobs were returned. Try a broader title or different location.")
-        else:
-            st.markdown(f"### 💼 Found {len(jobs)} Jobs — Click one to analyze it")
-        st.markdown("<p style='color:#8b949e;font-size:0.9rem;margin-top:-0.5rem;'>Select the job that interests you most. Your resume will be analyzed against that specific role.</p>", unsafe_allow_html=True)
+        # Search done — results stored in session state, fall through to render below
 
-        for i, job in enumerate(jobs):
-            company     = job.get("company", "Unknown Company")
-            title       = job.get("title", "Unknown Title")
-            loc         = job.get("location", "")
-            salary      = job.get("salary_display", job.get("salary", ""))
-            description = job.get("description", "")
-            url         = job.get("url", "")
-            posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
-            contract    = job.get("contract_type", "")
-            source      = job.get("source", "Unknown")
 
-            source_color = "#1f3a5f" if "JSearch" in source else "#1a3a2a" if "Adzuna" in source else "#3a3a3a"
-            tag_color = "#79c0ff" if "JSearch" in source else "#56d364" if "Adzuna" in source else "#e6edf3"
-            source_html = f'<span style="background:{source_color};color:{tag_color};padding:0.15rem 0.5rem;border-radius:4px;font-size:0.7rem;border:1px solid {tag_color};">{source}</span>'
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2: Show job listings — user selects one
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.step == "select_job":
+    jobs = st.session_state.jobs
 
-            salary_html   = f'<span class="tag tag-green">{salary}</span>' if salary else ""
-            contract_html = f'<span class="tag tag-yellow">{contract}</span>' if contract else ""
-            posted_html   = f'<span style="font-size:0.75rem;color:#8b949e;">Posted: {posted}</span>' if posted else ""
-            url_html      = f'<a href="{url}" target="_blank" style="color:#79c0ff;font-size:0.8rem;text-decoration:none;">View listing →</a>' if url else ""
-            desc_short    = (description[:280] + "…") if len(description) > 280 else description
+    if st.session_state.error:
+        st.error(f"❌ {st.session_state.error}")
+    elif not jobs:
+        st.warning("⚠️ No jobs were returned. Try a broader title or different location.")
+    else:
+        st.markdown(f"### 💼 Found {len(jobs)} Jobs — Click one to analyze it")
+    st.markdown("<p style='color:#8b949e;font-size:0.9rem;margin-top:-0.5rem;'>Select the job that interests you most. Your resume will be analyzed against that specific role.</p>", unsafe_allow_html=True)
 
-            st.markdown(f"""
-            <div class="job-card">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
-                <div>
-                  <div style="font-size:1rem;font-weight:600;color:#e6edf3;">{i+1}. {title}</div>
-                  <div style="font-size:0.85rem;color:#8b949e;margin-top:0.15rem;">🏢 {company} &nbsp;·&nbsp; 📍 {loc}</div>
-                  <div style="margin-top:0.3rem;">{source_html}</div>
-                </div>
-                <div style="text-align:right;">
-                  {salary_html}{contract_html}
-                  <div style="margin-top:0.3rem;">{url_html}</div>
-                </div>
-              </div>
-              {f'<div style="font-size:0.82rem;color:#8b949e;margin-top:0.75rem;line-height:1.5;">{desc_short}</div>' if desc_short else ""}
-              <div style="margin-top:0.5rem;">{posted_html}</div>
+    for i, job in enumerate(jobs):
+        company     = job.get("company", "Unknown Company")
+        title       = job.get("title", "Unknown Title")
+        loc         = job.get("location", "")
+        salary      = job.get("salary_display", job.get("salary", ""))
+        description = job.get("description", "")
+        url         = job.get("url", "")
+        posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
+        contract    = job.get("contract_type", "")
+        source      = job.get("source", "Unknown")
+
+        source_color = "#1f3a5f" if "JSearch" in source else "#1a3a2a" if "Adzuna" in source else "#3a3a3a"
+        tag_color = "#79c0ff" if "JSearch" in source else "#56d364" if "Adzuna" in source else "#e6edf3"
+        source_html = f'<span style="background:{source_color};color:{tag_color};padding:0.15rem 0.5rem;border-radius:4px;font-size:0.7rem;border:1px solid {tag_color};">{source}</span>'
+
+        salary_html   = f'<span class="tag tag-green">{salary}</span>' if salary else ""
+        contract_html = f'<span class="tag tag-yellow">{contract}</span>' if contract else ""
+        posted_html   = f'<span style="font-size:0.75rem;color:#8b949e;">Posted: {posted}</span>' if posted else ""
+        url_html      = f'<a href="{url}" target="_blank" style="color:#79c0ff;font-size:0.8rem;text-decoration:none;">View listing →</a>' if url else ""
+        desc_short    = (description[:280] + "…") if len(description) > 280 else description
+
+        st.markdown(f"""
+        <div class="job-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
+            <div>
+              <div style="font-size:1rem;font-weight:600;color:#e6edf3;">{i+1}. {title}</div>
+              <div style="font-size:0.85rem;color:#8b949e;margin-top:0.15rem;">🏢 {company} &nbsp;·&nbsp; 📍 {loc}</div>
+              <div style="margin-top:0.3rem;">{source_html}</div>
             </div>
-            """, unsafe_allow_html=True)
+            <div style="text-align:right;">
+              {salary_html}{contract_html}
+              <div style="margin-top:0.3rem;">{url_html}</div>
+            </div>
+          </div>
+          {f'<div style="font-size:0.82rem;color:#8b949e;margin-top:0.75rem;line-height:1.5;">{desc_short}</div>' if desc_short else ""}
+          <div style="margin-top:0.5rem;">{posted_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-            st.button(
-                f"✅ Analyze This Job", 
-                key=f"select_{i}",
-                on_click=set_analyze_step,
-                args=(job,)
-            )
+        st.button(
+            f"✅ Analyze This Job",
+            key=f"select_{i}",
+            on_click=set_analyze_step,
+            args=(job,)
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -505,6 +506,7 @@ if st.session_state.step == "analyze":
         height=280,
         placeholder="Paste your full resume text here. Gemini will analyze it against the selected job...",
         label_visibility="collapsed",
+        key="resume_text",  # persists across step navigation
     )
 
     st.markdown("#### 🛠️ Analysis Options")
@@ -527,12 +529,16 @@ if st.session_state.step == "analyze":
         if st.button("← Back to Jobs"):
             st.session_state.step = "select_job"
             st.session_state.selected_job = None
+            st.session_state.analyzing = False
             st.rerun()
 
     if analyze_btn:
         if not resume.strip():
             st.error("⚠️ Please paste your resume before running analysis.")
         else:
+            # Save resume independently of widget — widget keys are cleared when
+            # the widget is no longer rendered (e.g. on step change to 'results')
+            st.session_state.saved_resume_text = resume
             st.session_state.analyzing = True
             with st.spinner("🤖 Gemini is analyzing your resume....."):
                 try:
@@ -796,7 +802,75 @@ if st.session_state.step == "results":
                     mime="text/markdown",
                 )
 
-        # Analyze another job button
+        # ── Generate More Panel ────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Determine what hasn't been generated yet
+        missing = []
+        if not cover_letter:
+            missing.append("cover_letter")
+        if not st.session_state.get("tailored_resume", ""):
+            missing.append("tailored_resume")
+
+        if missing:
+            st.markdown("""
+            <div class="card card-accent" style="padding:1rem 1.25rem;margin-bottom:0.5rem;">
+              <div style="font-size:0.8rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">
+                ⚡ Generate More for This Job
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            gen_cover  = False
+            gen_tailor = False
+
+            chk_cols = st.columns(4)
+            col_i = 0
+            if "cover_letter" in missing:
+                with chk_cols[col_i]:
+                    gen_cover = st.checkbox("✍️ Cover Letter", value=True, key="gen_cover")
+                col_i += 1
+            if "tailored_resume" in missing:
+                with chk_cols[col_i]:
+                    gen_tailor = st.checkbox("✨ Auto-Revise Resume", value=False, key="gen_tailor")
+
+            gen_btn = st.button("▶ Generate Selected", type="primary")
+
+            if gen_btn:
+                resume_text = st.session_state.get("saved_resume_text", "")
+                if not resume_text.strip():
+                    st.error("⚠️ Resume text not found. Please go back and paste your resume again.")
+                else:
+                    job_title_val  = job.get("title", st.session_state.job_title)
+                    job_desc       = job.get("description", "")
+                    with st.spinner("🤖 Generating..."):
+                        if gen_cover:
+                            from tools.gemini_tools import GeminiCoverLetterTool
+                            cover_tool = GeminiCoverLetterTool()
+                            cover_raw = cover_tool._run(
+                                job_info=json.dumps({
+                                    "title": job_title_val,
+                                    "company": job.get("company", ""),
+                                    "description": job_desc,
+                                }),
+                                resume_text=resume_text,
+                                ats_analysis=json.dumps(analysis)
+                            )
+                            try:
+                                cover_data = json.loads(cover_raw)
+                                st.session_state.cover_letter = cover_data.get("cover_letter", cover_raw)
+                            except Exception:
+                                st.session_state.cover_letter = cover_raw
+
+                        if gen_tailor:
+                            from tools.gemini_resume_builder import GeminiResumeBuilder
+                            builder = GeminiResumeBuilder()
+                            st.session_state.tailored_resume = builder.build_resume(
+                                resume_text=resume_text,
+                                job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
+                            )
+                    st.rerun()
+
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns([2, 6])
         with col1:
