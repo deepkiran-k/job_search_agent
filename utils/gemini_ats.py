@@ -42,7 +42,7 @@ class GeminiATSScorer:
 }"""
         
         # Prepare the prompt for Gemini
-        prompt = f"""You are an expert ATS analyst. Analyze this resume against the job description.
+        prompt = f"""You are an expert ATS (Applicant Tracking System) analyst. Analyze this resume against the job description.
 
 JOB TITLE: {job_title}
 
@@ -52,10 +52,14 @@ JOB DESCRIPTION:
 RESUME:
 {resume_text}
 
+IMPORTANT ANALYSIS INSTRUCTIONS:
+1. Skills Gap Analysis: Do not just list missing skills. For missing skills or weaknesses, suggest specific, quantifiable achievements the user could add to their experience bullets to demonstrate that skill.
+2. Keyword Integration: Evaluate if the required keywords are integrated naturally into achievements with context, rather than just being stuffed into a list. Penalize the keyword score if keywords lack context.
+
 Respond with ONLY a valid JSON object (no markdown, no extra text) matching this structure:
 {json_schema}
 
-Be honest and use the full 0-100 scale. Keep all string values short (under 100 chars each).
+Be honest and use the full 0-100 scale. Keep all string values concise but highly actionable.
 """
         
         try:
