@@ -140,6 +140,7 @@ for key, default in {
     "analysis": None,
     "cover_letter": "",
     "tailored_resume": "",
+    "tailored_ats": None,
     "analyze_ats": True,
     "analyze_cover": True,
     "analyze_tailor": False,
@@ -287,6 +288,7 @@ with st.sidebar:
             st.session_state.analysis = None
             st.session_state.cover_letter = ""
             st.session_state.tailored_resume = ""
+            st.session_state.tailored_ats = None
             st.session_state.error = None
             st.rerun()
 
@@ -345,6 +347,7 @@ if search_clicked:
     st.session_state.analysis = None
     st.session_state.cover_letter = ""
     st.session_state.tailored_resume = ""
+    st.session_state.tailored_ats = None
     st.session_state.error = None
     st.session_state.step = "search"
     st.session_state.searching = True
@@ -551,6 +554,7 @@ if st.session_state.step == "analyze":
                     st.session_state.analysis = None
                     st.session_state.cover_letter = ""
                     st.session_state.tailored_resume = ""
+                    st.session_state.tailored_ats = None
 
                     # Call 1: ATS analysis
                     if st.session_state.analyze_ats:
@@ -588,6 +592,14 @@ if st.session_state.step == "analyze":
                             resume_text=resume,
                             job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
                         )
+                        # Call 4: Score the tailored resume to show improvement
+                        if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
+                            scorer2 = GeminiATSScorer()
+                            st.session_state.tailored_ats = scorer2.analyze_resume(
+                                resume_text=st.session_state.tailored_resume,
+                                job_title=job_title_val,
+                                job_description=job_desc,
+                            )
 
                     st.session_state.step = "results"
                     st.session_state.error = None
@@ -784,16 +796,64 @@ if st.session_state.step == "results":
         # ── TAB 3: Tailored Resume ───────────────────────────────────────────────
         with tab3:
             tailored = st.session_state.get("tailored_resume", "")
+            tailored_ats = st.session_state.get("tailored_ats") or {}
             if not tailored:
                 st.info("Auto-Revise Resume was not requested. Go back and check the box to generate a tailored ATS-optimized resume.")
             else:
                 st.markdown("### ✨ Your Tailored Resume")
-                st.markdown("This resume has been completely rewritten and optimized for ATS systems based on the chosen job description. It includes a tailored professional summary and keyword-optimized bullet points with quantified achievements.")
+
+                # ── ATS Before / After Comparison ────────────────────────────
+                orig_score    = int(analysis.get("ats_score", 0)) if analysis else None
+                revised_score = int(tailored_ats.get("ats_score", 0)) if tailored_ats else None
+
+                if revised_score is not None:
+                    delta      = (revised_score - orig_score) if orig_score is not None else None
+                    delta_color = "#56d364" if (delta is not None and delta >= 0) else "#da3633"
+                    delta_icon  = "🎉" if (delta is not None and delta >= 5) else ("✅" if delta is not None and delta >= 0 else "⚠️")
+                    delta_html  = (
+                        f'<span style="background:{delta_color};color:white;padding:0.2rem 0.65rem;'
+                        f'border-radius:12px;font-size:0.85rem;font-weight:700;">'
+                        f'{("+" if delta >= 0 else "")}{delta} {delta_icon}</span>'
+                    ) if delta is not None else ""
+
+                    orig_color    = score_color(orig_score) if orig_score is not None else "#8b949e"
+                    revised_color = score_color(revised_score)
+
+                    orig_label_html = (
+                        f'<div style="font-size:2rem;font-weight:700;color:{orig_color};">{orig_score}</div>'
+                        f'<div style="font-size:0.72rem;color:#8b949e;">/ 100</div>'
+                    ) if orig_score is not None else (
+                        '<div style="font-size:0.85rem;color:#8b949e;">N/A<br>(ATS not run)</div>'
+                    )
+
+                    st.markdown(f"""
+                    <div class="card card-accent" style="padding:1rem 1.25rem;margin-bottom:1rem;">
+                      <div style="font-size:0.72rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">📈 ATS Score Improvement</div>
+                      <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">
+                        <div style="text-align:center;">
+                          <div style="font-size:0.75rem;color:#8b949e;margin-bottom:0.3rem;">Original Resume</div>
+                          {orig_label_html}
+                        </div>
+                        <div style="font-size:1.5rem;color:#8b949e;">→</div>
+                        <div style="text-align:center;">
+                          <div style="font-size:0.75rem;color:#8b949e;margin-bottom:0.3rem;">Revised Resume</div>
+                          <div style="font-size:2rem;font-weight:700;color:{revised_color};">{revised_score}</div>
+                          <div style="font-size:0.72rem;color:#8b949e;">/ 100</div>
+                        </div>
+                        <div>{delta_html}</div>
+                      </div>
+                      <div style="margin-top:0.75rem;">
+                    """ , unsafe_allow_html=True)
+                    score_bar(revised_score, "Revised ATS Score")
+                    if orig_score is not None:
+                        score_bar(orig_score, "Original ATS Score")
+                    st.markdown("</div></div>", unsafe_allow_html=True)
+
                 st.markdown("<hr>", unsafe_allow_html=True)
-                
+
                 # Render the markdown directly for clean formatting
                 st.markdown(tailored)
-                
+
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
                     label="⬇️ Download Tailored Resume (.md)",
@@ -864,11 +924,20 @@ if st.session_state.step == "results":
 
                         if gen_tailor:
                             from tools.gemini_resume_builder import GeminiResumeBuilder
+                            from utils.gemini_ats import GeminiATSScorer
                             builder = GeminiResumeBuilder()
                             st.session_state.tailored_resume = builder.build_resume(
                                 resume_text=resume_text,
                                 job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
                             )
+                            # Score the tailored resume to show improvement
+                            if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
+                                scorer2 = GeminiATSScorer()
+                                st.session_state.tailored_ats = scorer2.analyze_resume(
+                                    resume_text=st.session_state.tailored_resume,
+                                    job_title=job_title_val,
+                                    job_description=job_desc,
+                                )
                     st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -880,6 +949,7 @@ if st.session_state.step == "results":
                 st.session_state.analysis = None
                 st.session_state.cover_letter = ""
                 st.session_state.tailored_resume = ""
+                st.session_state.tailored_ats = None
                 st.rerun()
 
 
