@@ -243,8 +243,9 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("### 🔍 Search Parameters")
-    job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,  placeholder="e.g. Data Scientist")
-    location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
+    # Use "key" instead of "value" to avoid Streamlit Cloud infinite recursion bugs
+    job_title_input  = st.text_input("Job Title", key="job_title", placeholder="e.g. Data Scientist")
+    location_input   = st.text_input("Location",  key="location",  placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
     
     # Country selection
     country_options = {
@@ -266,17 +267,22 @@ with st.sidebar:
         "nz": "🇳🇿 New Zealand",
         "sg": "🇸🇬 Singapore",
     }
+    # Use index 0 so it defaults safely, but let Streamlit manage the actual selected value
     country_code = st.selectbox(
         "Country", 
         options=list(country_options.keys()),
         format_func=lambda x: country_options[x],
-        index=0
+        index=list(country_options.keys()).index(st.session_state.get('country', 'us')) if st.session_state.get('country') in country_options else 0,
+        key="country_select"
     )
     
-    experience_input = st.selectbox("Experience Level", [
-        "0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"
-    ], index=["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"].index(st.session_state.experience))
-
+    exp_options = ["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"]
+    experience_input = st.selectbox(
+        "Experience Level", 
+        exp_options, 
+        index=exp_options.index(st.session_state.get('experience', '0-1 years')) if st.session_state.get('experience') in exp_options else 0,
+        key="experience_select"
+    )
     search_clicked = st.button("🔍 Find Jobs", type="primary", use_container_width=True,
                                disabled=st.session_state.searching)
 
@@ -338,10 +344,11 @@ step_indicator(st.session_state.step)
 # STEP 1: Search triggered from sidebar
 # ══════════════════════════════════════════════════════════════════════════════
 if search_clicked:
-    st.session_state.job_title  = job_title_input
-    st.session_state.location   = location_input
-    st.session_state.experience = experience_input
-    st.session_state.country    = country_code
+    # Read the values directly from the widget keys rather than local variables
+    st.session_state.job_title  = st.session_state.job_title
+    st.session_state.location   = st.session_state.location
+    st.session_state.experience = st.session_state.experience_select
+    st.session_state.country    = st.session_state.country_select
     st.session_state.jobs = []
     st.session_state.selected_job = None
     st.session_state.analysis = None
