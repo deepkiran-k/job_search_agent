@@ -147,9 +147,6 @@ for key, default in {
     "error": None,
     "searching": False,
     "analyzing": False,
-    "job_title": "Software Engineer",
-    "location": "Remote",
-    "experience": "3-5 years",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -344,11 +341,9 @@ step_indicator(st.session_state.step)
 # STEP 1: Search triggered from sidebar
 # ══════════════════════════════════════════════════════════════════════════════
 if search_clicked:
-    # Read the values directly from the widget keys rather than local variables
-    st.session_state.job_title  = st.session_state.job_title
-    st.session_state.location   = st.session_state.location
-    st.session_state.experience = st.session_state.experience_select
-    st.session_state.country    = st.session_state.country_select
+    # Values are already bound to session state via widget keys:
+    # job_title, location, country_select, experience_select
+
     st.session_state.jobs = []
     st.session_state.selected_job = None
     st.session_state.analysis = None
