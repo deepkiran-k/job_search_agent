@@ -369,20 +369,20 @@ if search_clicked:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                     f_adzuna = executor.submit(
                         search_adzuna,
-                        job_title=st.session_state.job_title,
-                        location=st.session_state.location,
+                        job_title=st.session_state.get('job_title', ''),
+                        location=st.session_state.get('location', ''),
                         max_results=15, # Distribute the load
-                        country=st.session_state.get('country', 'us'),
-                        experience=st.session_state.experience
+                        country=st.session_state.get('country_select', 'us'),
+                        experience=st.session_state.get('experience_select', '')
                     )
                     
                     f_jsearch = executor.submit(
                         search_jsearch,
-                        job_title=st.session_state.job_title,
-                        location=st.session_state.location,
+                        job_title=st.session_state.get('job_title', ''),
+                        location=st.session_state.get('location', ''),
                         max_results=15,
-                        experience=st.session_state.experience,
-                        country=st.session_state.get('country', 'us')
+                        experience=st.session_state.get('experience_select', ''),
+                        country=st.session_state.get('country_select', 'us')
                     )
                     
                     try:
