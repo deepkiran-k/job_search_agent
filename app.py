@@ -147,6 +147,9 @@ for key, default in {
     "error": None,
     "searching": False,
     "analyzing": False,
+    "job_title": "Software Engineer",
+    "location": "Remote",
+    "experience": "3-5 years",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -240,9 +243,8 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("### 🔍 Search Parameters")
-    # Use "key" instead of "value" to avoid Streamlit Cloud infinite recursion bugs
-    job_title_input  = st.text_input("Job Title", key="job_title", placeholder="e.g. Data Scientist")
-    location_input   = st.text_input("Location",  key="location",  placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
+    job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,  placeholder="e.g. Data Scientist")
+    location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
     
     # Country selection
     country_options = {
@@ -264,22 +266,17 @@ with st.sidebar:
         "nz": "🇳🇿 New Zealand",
         "sg": "🇸🇬 Singapore",
     }
-    # Use index 0 so it defaults safely, but let Streamlit manage the actual selected value
     country_code = st.selectbox(
         "Country", 
         options=list(country_options.keys()),
         format_func=lambda x: country_options[x],
-        index=list(country_options.keys()).index(st.session_state.get('country', 'us')) if st.session_state.get('country') in country_options else 0,
-        key="country_select"
+        index=0
     )
     
-    exp_options = ["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"]
-    experience_input = st.selectbox(
-        "Experience Level", 
-        exp_options, 
-        index=exp_options.index(st.session_state.get('experience', '0-1 years')) if st.session_state.get('experience') in exp_options else 0,
-        key="experience_select"
-    )
+    experience_input = st.selectbox("Experience Level", [
+        "0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"
+    ], index=["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"].index(st.session_state.experience))
+
     search_clicked = st.button("🔍 Find Jobs", type="primary", use_container_width=True,
                                disabled=st.session_state.searching)
 
@@ -341,9 +338,10 @@ step_indicator(st.session_state.step)
 # STEP 1: Search triggered from sidebar
 # ══════════════════════════════════════════════════════════════════════════════
 if search_clicked:
-    # Values are already bound to session state via widget keys:
-    # job_title, location, country_select, experience_select
-
+    st.session_state.job_title  = job_title_input
+    st.session_state.location   = location_input
+    st.session_state.experience = experience_input
+    st.session_state.country    = country_code
     st.session_state.jobs = []
     st.session_state.selected_job = None
     st.session_state.analysis = None
@@ -369,20 +367,20 @@ if search_clicked:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                     f_adzuna = executor.submit(
                         search_adzuna,
-                        job_title=st.session_state.get('job_title', ''),
-                        location=st.session_state.get('location', ''),
+                        job_title=st.session_state.job_title,
+                        location=st.session_state.location,
                         max_results=15, # Distribute the load
-                        country=st.session_state.get('country_select', 'us'),
-                        experience=st.session_state.get('experience_select', '')
+                        country=st.session_state.get('country', 'us'),
+                        experience=st.session_state.experience
                     )
                     
                     f_jsearch = executor.submit(
                         search_jsearch,
-                        job_title=st.session_state.get('job_title', ''),
-                        location=st.session_state.get('location', ''),
+                        job_title=st.session_state.job_title,
+                        location=st.session_state.location,
                         max_results=15,
-                        experience=st.session_state.get('experience_select', ''),
-                        country=st.session_state.get('country_select', 'us')
+                        experience=st.session_state.experience,
+                        country=st.session_state.get('country', 'us')
                     )
                     
                     try:

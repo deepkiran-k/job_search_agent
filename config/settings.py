@@ -1,6 +1,7 @@
+# config/settings.py - Updated for Gemini
 import os
-import streamlit as st
 from dotenv import load_dotenv
+
 # Load environment variables ONCE
 load_dotenv()
 
@@ -8,11 +9,7 @@ class Settings:
     """Application settings"""
     
     # Google Gemini Configuration
-    # Fallback to os.getenv for local dev, but prioritize Streamlit secrets for cloud
-    try:
-        GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
-    except Exception:
-        GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
     
     # Check if Gemini is configured
     HAS_GEMINI = bool(GOOGLE_API_KEY)
