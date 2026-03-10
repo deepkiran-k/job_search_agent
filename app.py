@@ -5,7 +5,14 @@ Gemini is called ONLY twice: once for ATS scoring, once for cover letter.
 """
 import os
 import json
+import asyncio
 import streamlit as st
+
+# ── Asyncio Patch for Streamlit + Langchain ──────────────────────────────────
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
 st.set_page_config(
