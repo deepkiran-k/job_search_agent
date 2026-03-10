@@ -1,25 +1,14 @@
 # tools/gemini_tools.py - GEMINI TOOLS FOR CREWAI
 import json
 from typing import Any
-from crewai_tools import BaseTool
-from pydantic import Field
 from utils.gemini_ats import GeminiATSScorer
 from langchain_core.messages import SystemMessage, HumanMessage
 
-class GeminiATSTool(BaseTool):
-    """CrewAI tool wrapper for Gemini ATS scoring"""
+class GeminiATSTool:
+    """Tool wrapper for Gemini ATS scoring"""
     
-    name: str = "Gemini ATS Analyzer"
-    description: str = """Analyze resume against job descriptions using Google Gemini.
-    Returns comprehensive ATS score, keyword matching, strengths, weaknesses, and improvement suggestions."""
-    
-    # Pydantic V2 field declaration
-    scorer: Any = Field(default=None)
-    
-    def __init__(self, **data):
-        super().__init__(**data)
-        if not self.scorer:
-            self.scorer = GeminiATSScorer()
+    def __init__(self):
+        self.scorer = GeminiATSScorer()
     
     def _run(self, resume_text: str, job_description: str = "", job_title: str = "") -> str:
 
@@ -37,20 +26,11 @@ class GeminiATSTool(BaseTool):
             })
 
 
-class GeminiCoverLetterTool(BaseTool):
+class GeminiCoverLetterTool:
     """Generate personalized cover letters using Gemini"""
     
-    name: str = "Gemini Cover Letter Generator"
-    description: str = """Generate professional, personalized cover letters using Google Gemini.
-    Takes job information, resume details, and ATS analysis to create compelling cover letters."""
-    
-    # Pydantic V2 field declaration
-    scorer: Any = Field(default=None)
-    
-    def __init__(self, **data):
-        super().__init__(**data)
-        if not self.scorer:
-            self.scorer = GeminiATSScorer()
+    def __init__(self):
+        self.scorer = GeminiATSScorer()
     
     def _run(self, job_info: str, resume_text: str, ats_analysis: str = "") -> str:
         """
@@ -185,20 +165,11 @@ Sincerely,
 [Your Name]"""
 
 
-class JobRankingTool(BaseTool):
+class JobRankingTool:
     """Rank jobs by match score using AI analysis"""
     
-    name: str = "AI Job Ranker"
-    description: str = """Rank multiple job opportunities by how well they match a candidate's resume.
-    Uses AI to go beyond keyword matching and assess true fit."""
-    
-    # Pydantic V2 field declaration
-    scorer: Any = Field(default=None)
-    
-    def __init__(self, **data):
-        super().__init__(**data)
-        if not self.scorer:
-            self.scorer = GeminiATSScorer()
+    def __init__(self):
+        self.scorer = GeminiATSScorer()
     
     def _run(self, jobs_json: str, resume_text: str, top_n: int = 10) -> str:
         """

@@ -223,11 +223,7 @@ with st.sidebar:
     st.markdown("---")
 
     # Gemini status indicator
-    try:
-        llm = settings.get_gemini_llm()
-        gemini_ok = llm is not None
-    except Exception:
-        gemini_ok = False
+    gemini_ok = settings.HAS_GEMINI
 
     status_color = "#56d364" if gemini_ok else "#f85149"
     status_text  = "Connected" if gemini_ok else "Disconnected"
@@ -606,6 +602,7 @@ if st.session_state.step == "analyze":
 
                 except Exception as e:
                     st.session_state.error = str(e)
+                    st.session_state.step = "results"
                 finally:
                     st.session_state.analyzing = False
 

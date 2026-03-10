@@ -72,7 +72,7 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         if any(rk in location.lower() for rk in REMOTE_KEYWORDS):
             querystring["remote_jobs_only"] = "true"
         
-        response = requests.get(url, headers=headers, params=querystring, timeout=20)
+        response = requests.get(url, headers=headers, params=querystring, timeout=60)
         response.raise_for_status()
         
         data = response.json()
