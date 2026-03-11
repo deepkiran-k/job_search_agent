@@ -83,25 +83,47 @@ def _parse_pdf(file_bytes: bytes) -> dict:
             page_text = page.extract_text() or ""
             all_text.append(page_text)
             
-            # Check for images (embedded XObjects)
-            if "/XObject" in (page.get("/Resources") or {}):
-                xobjects = page["/Resources"]["/XObject"]
-                if xobjects:
-                    for obj_name in xobjects:
-                        xobj = xobjects[obj_name]
-                        if hasattr(xobj, "get") and xobj.get("/Subtype") == "/Image":
-                            has_images = True
-            
-            # Extract font info
-            if "/Font" in (page.get("/Resources") or {}):
-                fonts = page["/Resources"]["/Font"]
-                if fonts:
-                    for font_name in fonts:
-                        font_obj = fonts[font_name]
-                        if hasattr(font_obj, "get"):
-                            base_font = font_obj.get("/BaseFont", "")
-                            if base_font:
-                                font_names.add(str(base_font))
+            # Check for images and fonts — wrapped in try/except because
+            # PyPDF2 resources can be IndirectObject references that need resolving
+            try:
+                resources = page.get("/Resources")
+                if resources and hasattr(resources, "get_object"):
+                    resources = resources.get_object()
+                if isinstance(resources, dict):
+                    # Check for images (embedded XObjects)
+                    xobjects = resources.get("/XObject")
+                    if xobjects and hasattr(xobjects, "get_object"):
+                        xobjects = xobjects.get_object()
+                    if isinstance(xobjects, dict):
+                        for obj_name in xobjects:
+                            try:
+                                xobj = xobjects[obj_name]
+                                if hasattr(xobj, "get_object"):
+                                    xobj = xobj.get_object()
+                                if hasattr(xobj, "get") and xobj.get("/Subtype") == "/Image":
+                                    has_images = True
+                            except Exception:
+                                pass
+                    
+                    # Extract font info
+                    fonts = resources.get("/Font")
+                    if fonts and hasattr(fonts, "get_object"):
+                        fonts = fonts.get_object()
+                    if isinstance(fonts, dict):
+                        for font_name in fonts:
+                            try:
+                                font_obj = fonts[font_name]
+                                if hasattr(font_obj, "get_object"):
+                                    font_obj = font_obj.get_object()
+                                if hasattr(font_obj, "get"):
+                                    base_font = font_obj.get("/BaseFont", "")
+                                    if base_font:
+                                        font_names.add(str(base_font))
+                            except Exception:
+                                pass
+            except Exception:
+                # Metadata extraction failed — text extraction still works
+                pass
         
         combined_text = "\n".join(all_text).strip()
         
