@@ -19,7 +19,7 @@ An AI-powered job search and resume optimization platform. Search real jobs from
 - Filter by title, location, country, and experience level
 
 ### 📊 Deterministic ATS Scoring
-Resume scoring engine that mirrors real ATS software (Jobscan, ATSFriendly):
+Resume scoring engine that mirrors real ATS software:
 
 | Dimension | Weight | What It Checks |
 |---|---|---|
