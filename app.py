@@ -6,6 +6,11 @@ Gemini is called ONLY twice: once for ATS scoring, once for cover letter.
 import os
 import json
 import asyncio
+# Ensure event loop exists in Streamlit Cloud's ScriptRunner thread
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 import streamlit as st
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
