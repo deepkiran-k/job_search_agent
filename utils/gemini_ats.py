@@ -1,48 +1,94 @@
-# utils/gemini_ats.py - REAL ATS SCORING WITH GEMINI
+# utils/gemini_ats.py - ATS SCORING: Deterministic scores + Gemini qualitative analysis
 import json
 import re
 from config.settings import settings
 from langchain_core.messages import SystemMessage, HumanMessage
+from utils.ats_scanner import ATSScanner
+
 
 class GeminiATSScorer:
-    """Real ATS scoring using Google Gemini"""
+    """
+    Hybrid ATS analysis:
+    - Deterministic ATSScanner provides all numerical scores
+    - Gemini provides qualitative improvement suggestions based on those scores
+    """
     
     def __init__(self):
-        """Initialize Gemini LLM"""
+        """Initialize Gemini LLM and deterministic scanner"""
         self.llm = settings.get_gemini_llm()
+        self.scanner = ATSScanner()
     
-    def analyze_resume(self, resume_text, job_title, job_description=None):
+    def analyze_resume(self, resume_text, job_title, job_description=None, file_checks=None):
         """
-        Analyze resume using Gemini and return REAL ATS score
+        1. Run deterministic ATS scan (scores)
+        2. Send scan results to Gemini for qualitative analysis (suggestions)
+        3. Return merged result
         """
-        
-        if not self.llm:
-            return self._rule_based_fallback(resume_text, job_title, job_description)
         
         # Create default job description if none provided
         if not job_description:
-            job_description = f"""
-            We are looking for a {job_title} with relevant experience in the field.
-            """
+            job_description = f"We are looking for a {job_title} with relevant experience in the field."
+        
+        # ── Step 1: Deterministic scan ────────────────────────────────────────
+        det = self.scanner.scan(resume_text, job_description, job_title, file_checks=file_checks)
+        
+        # ── Step 2: Gemini qualitative analysis ───────────────────────────────
+        gemini_analysis = self._get_gemini_analysis(resume_text, job_title, job_description, det, file_checks)
+        
+        # ── Step 3: Merge into final result ───────────────────────────────────
+        result = {
+            # Deterministic scores (these are the "official" scores)
+            "ats_score":          det["overall_score"],
+            "keyword_match":      det["keyword_score"],
+            "formatting_score":   det["formatting_score"],
+            "achievements_score": det["achievements_score"],
+            "section_score":      det["section_score"],
+            "length_score":       det["length_score"],
+            "contact_score":      det["contact_score"],
+            
+            # Deterministic details
+            "matched_keywords":   det["matched_keywords"],
+            "missing_keywords":   det["missing_keywords"],
+            "keyword_density":    det["keyword_density"],
+            "detected_sections":  det["detected_sections"],
+            "missing_sections":   det["missing_sections"],
+            "formatting_issues":  det["formatting_issues"],
+            "achievements_found": det["achievements_found"],
+            "word_count":         det["word_count"],
+            "contact_info":       det["contact_info"],
+            "length_feedback":    det["length_feedback"],
+            
+            # Gemini qualitative analysis
+            "strengths":            gemini_analysis.get("strengths", []),
+            "weaknesses":           gemini_analysis.get("weaknesses", []),
+            "specific_suggestions": gemini_analysis.get("specific_suggestions", []),
+            "analysis_summary":     gemini_analysis.get("analysis_summary", ""),
+            "interview_probability": gemini_analysis.get("interview_probability", max(20, det["overall_score"] - 15)),
+            "market_value":         gemini_analysis.get("market_value", ""),
+            
+            # Metadata
+            "analysis_method": "Deterministic ATS Scan + Gemini AI Analysis",
+            "job_title": job_title,
+        }
+        
+        return result
+
+    def _get_gemini_analysis(self, resume_text, job_title, job_description, det_results, file_checks=None):
+        """Ask Gemini for qualitative improvement suggestions based on deterministic results."""
+        
+        if not self.llm:
+            return self._qualitative_fallback(det_results)
         
         json_schema = """{
-  "ats_score": <int 0-100>,
-  "keyword_match": <int 0-100>,
-  "formatting_score": <int 0-100>,
-  "experience_score": <int 0-100>,
-  "education_score": <int 0-100>,
-  "skills_score": <int 0-100>,
-  "missing_keywords": ["keyword1", "keyword2"],
-  "strengths": ["strength1"],
-  "weaknesses": ["weakness1"],
-  "specific_suggestions": ["suggestion1"],
+  "strengths": ["strength1", "strength2"],
+  "weaknesses": ["weakness1", "weakness2"],
+  "specific_suggestions": ["actionable suggestion 1", "actionable suggestion 2"],
+  "analysis_summary": "2-3 sentence summary of the candidate's fit",
   "interview_probability": <int 0-100>,
-  "market_value": "$X - $Y",
-  "analysis_summary": "1-2 sentence summary"
+  "market_value": "$X - $Y"
 }"""
         
-        # Prepare the prompt for Gemini
-        prompt = f"""You are an expert ATS (Applicant Tracking System) analyst. Analyze this resume against the job description.
+        prompt = f"""You are an expert career coach. A deterministic ATS scanner has already scored this resume. Your job is NOT to score — instead, provide actionable qualitative advice.
 
 JOB TITLE: {job_title}
 
@@ -52,88 +98,124 @@ JOB DESCRIPTION:
 RESUME:
 {resume_text}
 
-IMPORTANT ANALYSIS INSTRUCTIONS:
-1. Skills Gap Analysis: Do not just list missing skills. For missing skills or weaknesses, suggest specific, quantifiable achievements the user could add to their experience bullets to demonstrate that skill.
-2. Keyword Integration: Evaluate if the required keywords are integrated naturally into achievements with context, rather than just being stuffed into a list. Penalize the keyword score if keywords lack context.
+DETERMINISTIC ATS RESULTS:
+- Overall ATS Score: {det_results['overall_score']}/100
+- Keyword Match: {det_results['keyword_score']}/100
+- Formatting: {det_results['formatting_score']}/100
+- Sections Detected: {', '.join(det_results['detected_sections'])}
+- Missing Sections: {', '.join(det_results['missing_sections'])}
+- Missing Keywords: {', '.join(det_results['missing_keywords'][:10])}
+- Matched Keywords: {', '.join(det_results['matched_keywords'][:10])}
+- Keyword Density: {det_results['keyword_density']}%
+- Achievements Found: {len(det_results['achievements_found'])}
+- Formatting Issues: {'; '.join(det_results['formatting_issues']) if det_results['formatting_issues'] else 'None'}
+- Word Count: {det_results['word_count']}
+- File Structure: {json.dumps(file_checks) if file_checks else 'Pasted Text'}
 
-Respond with ONLY a valid JSON object (no markdown, no extra text) matching this structure:
+INSTRUCTIONS:
+1. Based on the ATS scan results above, provide SPECIFIC, ACTIONABLE suggestions to improve the resume.
+2. For missing keywords, suggest WHERE and HOW to naturally incorporate them into existing bullet points.
+3. For weaknesses, suggest specific rewording or additions with example text.
+4. Estimate interview probability considering both the ATS score and the quality/relevance of experience.
+5. Keep all responses concise and highly actionable.
+
+Respond with ONLY a valid JSON object matching this structure:
 {json_schema}
-
-Be honest and use the full 0-100 scale. Keep all string values concise but highly actionable.
 """
         
         try:
-            # Call Gemini
             messages = [
-                SystemMessage(content="You are an expert ATS analyst. Return only valid JSON."),
+                SystemMessage(content="You are an expert career coach. Return only valid JSON. Do not score — only advise."),
                 HumanMessage(content=prompt)
             ]
             
             response = self.llm.invoke(messages)
             content = response.content.strip()
             
-            # Use regex to find the main JSON object
+            # Extract JSON
             json_match = re.search(r'\{[\s\S]*\}', content)
             if json_match:
                 content = json_match.group(0)
             
-            # Parse the response
             result = json.loads(content)
-            
-            # Add metadata
-            result["analysis_method"] = "Google Gemini 2.5 Flash"
-            result["job_title"] = job_title
-            
             return result
             
         except Exception as e:
-            print(f"Gemini Analysis Error: {e}")
-            return self._rule_based_fallback(resume_text, job_title, job_description)
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
+                print(f"Gemini API Quota Exceeded: {e}")
+                fallback = self._qualitative_fallback(det_results)
+                fallback["analysis_summary"] = "⚠️ Gemini API Quota Exceeded. Showing deterministic scan results only. AI qualitative analysis is temporarily unavailable."
+                return fallback
+            
+            print(f"Gemini Qualitative Analysis Error: {e}")
+            return self._qualitative_fallback(det_results)
     
-    def _rule_based_fallback(self, resume_text, job_title, job_description):
-        """Intelligent fallback if Gemini is unavailable"""
+    def _qualitative_fallback(self, det_results):
+        """Rule-based fallback for qualitative analysis when Gemini is unavailable."""
         
-        resume_lower = resume_text.lower()
+        suggestions = []
+        strengths = []
+        weaknesses = []
         
-        # Simple keyword fallback logic
-        keywords = {
-            "python": 10, "java": 5, "javascript": 5, "react": 5, "aws": 7, 
-            "azure": 7, "docker": 6, "kubernetes": 6, "sql": 5, 
-            "machine learning": 10, "ai": 8, "data": 5
-        }
+        # Generate suggestions based on deterministic results
+        if det_results["missing_keywords"]:
+            suggestions.append(
+                f"Add these missing keywords naturally into your experience bullets: "
+                f"{', '.join(det_results['missing_keywords'][:5])}"
+            )
         
-        # Calculate keyword match
-        matched_keywords = []
-        missing_keywords = []
-        total_score = 0
-        max_score = sum(keywords.values())
+        if det_results["missing_sections"]:
+            suggestions.append(
+                f"Add these standard resume sections: {', '.join(det_results['missing_sections'])}"
+            )
         
-        for keyword, weight in keywords.items():
-            if keyword in resume_lower:
-                matched_keywords.append(keyword)
-                total_score += weight
-            else:
-                missing_keywords.append(keyword)
+        if det_results["formatting_issues"]:
+            for issue in det_results["formatting_issues"][:2]:
+                suggestions.append(f"Fix formatting: {issue}")
         
-        keyword_percentage = int((total_score / max_score) * 100) if max_score > 0 else 50
+        if det_results["achievements_score"] < 50:
+            suggestions.append("Add more quantified achievements (e.g., 'Improved X by 30%', 'Saved $50K')")
         
-        # Basic scoring
-        ats_score = min(100, max(40, keyword_percentage + 20))
+        if not det_results["contact_info"].get("linkedin"):
+            suggestions.append("Add your LinkedIn profile URL")
+        
+        # Strengths
+        if det_results["keyword_score"] >= 60:
+            strengths.append("Good keyword coverage for this role")
+        if det_results["formatting_score"] >= 80:
+            strengths.append("Clean, ATS-friendly formatting")
+        if det_results["achievements_score"] >= 70:
+            strengths.append("Strong use of quantified achievements")
+        if det_results["section_score"] >= 80:
+            strengths.append("Well-structured with standard resume sections")
+        if det_results["contact_info"].get("email") and det_results["contact_info"].get("phone"):
+            strengths.append("Contact information is complete")
+        
+        # Weaknesses
+        if det_results["keyword_score"] < 50:
+            weaknesses.append("Low keyword match — resume may not pass ATS keyword filters")
+        if det_results["formatting_score"] < 70:
+            weaknesses.append("Formatting issues may cause ATS parsing errors")
+        if det_results["achievements_score"] < 50:
+            weaknesses.append("Lacks quantified achievements — add metrics to demonstrate impact")
+        if det_results["section_score"] < 60:
+            weaknesses.append("Missing standard resume sections that ATS systems expect")
+        
+        # Fallback summary
+        score = det_results["overall_score"]
+        if score >= 75:
+            summary = "Resume is well-optimized for ATS systems. Focus on fine-tuning keyword placement."
+        elif score >= 50:
+            summary = "Resume has a moderate ATS score. Address missing keywords and formatting issues to improve."
+        else:
+            summary = "Resume needs significant improvement for ATS compatibility. Focus on structure, keywords, and formatting."
         
         return {
-            "ats_score": ats_score,
-            "keyword_match": keyword_percentage,
-            "formatting_score": 70,
-            "experience_score": 70,
-            "education_score": 70,
-            "skills_score": keyword_percentage,
-            "missing_keywords": missing_keywords[:5],
-            "strengths": ["Basic technical skills"],
-            "weaknesses": ["Could add more specific keywords"],
-            "specific_suggestions": ["Add more technical keywords matching the job description"],
-            "interview_probability": min(80, ats_score - 10),
-            "market_value": "$80k - $120k",
-            "analysis_summary": "Basic analysis (Fallback Mode). Resume seems relevant but could be improved.",
-            "analysis_method": "Rule-based Fallback",
-            "job_title": job_title
+            "strengths": strengths if strengths else ["Basic resume structure present"],
+            "weaknesses": weaknesses if weaknesses else ["Could be more targeted"],
+            "specific_suggestions": suggestions if suggestions else ["Tailor resume keywords to the job description"],
+            "analysis_summary": summary,
+            "interview_probability": max(20, score - 15),
+            "market_value": "",
         }

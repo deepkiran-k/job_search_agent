@@ -136,6 +136,12 @@ Write the complete cover letter including the salutation and signature.
             }, indent=2)
             
         except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
+                return json.dumps({
+                    "error": "⚠️ Gemini API Quota Exceeded. Using template fallback for cover letter.",
+                    "cover_letter": self._template_fallback(job_info, resume_text)
+                })
             return json.dumps({
                 "error": f"Cover letter generation failed: {str(e)}",
                 "cover_letter": self._template_fallback(job_info, resume_text)

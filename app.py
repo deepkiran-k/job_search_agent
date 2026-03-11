@@ -8,12 +8,6 @@ import json
 import asyncio
 import streamlit as st
 
-# ── Asyncio Patch for Streamlit + Langchain ──────────────────────────────────
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 # ── Must be first Streamlit call ──────────────────────────────────────────────
 st.set_page_config(
     page_title="AI Job Search Agent",
@@ -506,14 +500,63 @@ if st.session_state.step == "analyze":
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 📄 Paste Your Resume")
-    resume = st.text_area(
-        label="Resume text",
-        height=280,
-        placeholder="Paste your full resume text here. Gemini will analyze it against the selected job...",
-        label_visibility="collapsed",
-        key="resume_text",  # persists across step navigation
-    )
+    st.markdown("### 📄 Your Resume")
+    upload_tab, paste_tab = st.tabs(["📎 Upload File", "📝 Paste Text"])
+    
+    with upload_tab:
+        uploaded_file = st.file_uploader(
+            "Upload your resume (PDF, DOCX, or TXT)",
+            type=["pdf", "docx", "txt"],
+            key="resume_file",
+        )
+        if uploaded_file:
+            from utils.resume_parser import parse_resume_file
+            parsed = parse_resume_file(uploaded_file)
+            st.session_state.parsed_file = parsed
+            st.session_state.file_checks = parsed.get("file_checks")
+            
+            file_text = parsed.get("text", "")
+            file_type = parsed.get("file_type", "unknown")
+            file_checks = parsed.get("file_checks", {})
+            
+            # Show file info
+            st.markdown(f"""
+            <div class="card" style="padding:0.75rem 1rem;margin-top:0.5rem;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <span class="tag tag-green">✅ {uploaded_file.name}</span>
+                  <span class="tag tag-blue">{file_type.upper()}</span>
+                  <span style="font-size:0.8rem;color:#8b949e;margin-left:0.5rem;">{len(file_text.split())} words extracted</span>
+                </div>
+                {f'<span class="tag tag-blue">{file_checks.get("page_count", "?")} page(s)</span>' if file_checks.get("page_count") else ''}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Show file-structure warnings
+            if file_checks.get("issues"):
+                for issue in file_checks["issues"]:
+                    st.markdown(f"""
+                    <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.3rem;">
+                      <span style="color:#d29922;flex-shrink:0;">⚠</span>
+                      <span style="color:#e6edf3;font-size:0.85rem;">{issue}</span>
+                    </div>""", unsafe_allow_html=True)
+            
+            # Show extracted text preview
+            with st.expander("Preview extracted text", expanded=False):
+                st.text(file_text[:2000] + ("..." if len(file_text) > 2000 else ""))
+        else:
+            st.session_state.parsed_file = None
+            st.session_state.file_checks = None
+    
+    with paste_tab:
+        resume = st.text_area(
+            label="Resume text",
+            height=280,
+            placeholder="Paste your full resume text here...",
+            label_visibility="collapsed",
+            key="resume_text",
+        )
 
     st.markdown("#### 🛠️ Analysis Options")
     col_opt1, col_opt2, col_opt3 = st.columns(3)
@@ -539,14 +582,22 @@ if st.session_state.step == "analyze":
             st.rerun()
 
     if analyze_btn:
-        if not resume.strip():
-            st.error("⚠️ Please paste your resume before running analysis.")
+        # Get resume text from upload or paste
+        uploaded_text = ""
+        if st.session_state.get("parsed_file"):
+            uploaded_text = st.session_state.parsed_file.get("text", "")
+        pasted_text = resume if 'resume' in dir() else ""
+        final_resume = uploaded_text or pasted_text
+        file_checks = st.session_state.get("file_checks")
+        
+        if not final_resume.strip():
+            st.error("⚠️ Please upload a resume file or paste your resume text before running analysis.")
         else:
             # Save resume independently of widget — widget keys are cleared when
             # the widget is no longer rendered (e.g. on step change to 'results')
-            st.session_state.saved_resume_text = resume
+            st.session_state.saved_resume_text = final_resume
             st.session_state.analyzing = True
-            with st.spinner("🤖 Gemini is analyzing your resume....."):
+            with st.spinner("🔍 Running ATS Scan + AI Analysis..."):
                 try:
                     from utils.gemini_ats import GeminiATSScorer
                     from tools.gemini_tools import GeminiCoverLetterTool
@@ -563,9 +614,10 @@ if st.session_state.step == "analyze":
                     if st.session_state.analyze_ats:
                         scorer = GeminiATSScorer()
                         analysis = scorer.analyze_resume(
-                            resume_text=resume,
+                            resume_text=final_resume,
                             job_title=job_title_val,
                             job_description=job_desc,
+                            file_checks=file_checks,
                         )
                         st.session_state.analysis = analysis
 
@@ -578,7 +630,7 @@ if st.session_state.step == "analyze":
                                 "company": job.get("company", ""),
                                 "description": job_desc,
                             }),
-                            resume_text=resume,
+                            resume_text=final_resume,
                             ats_analysis=json.dumps(st.session_state.get("analysis", {}))
                         )
                         try:
@@ -587,21 +639,23 @@ if st.session_state.step == "analyze":
                         except Exception:
                             st.session_state.cover_letter = cover_raw
                             
-                    # Call 3: Tailor Resume
+                    # Call 3: Tailor Resume (guided by ATS scan findings)
                     if st.session_state.analyze_tailor:
                         from tools.gemini_resume_builder import GeminiResumeBuilder
+                        from utils.ats_scanner import ATSScanner
                         builder = GeminiResumeBuilder()
                         st.session_state.tailored_resume = builder.build_resume(
-                            resume_text=resume,
-                            job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
+                            resume_text=final_resume,
+                            job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc},
+                            ats_results=st.session_state.get("analysis"),
                         )
-                        # Call 4: Score the tailored resume to show improvement
+                        # Re-score tailored resume with deterministic scanner only (no extra Gemini call)
                         if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
-                            scorer2 = GeminiATSScorer()
-                            st.session_state.tailored_ats = scorer2.analyze_resume(
+                            det_scanner = ATSScanner()
+                            st.session_state.tailored_ats = det_scanner.scan(
                                 resume_text=st.session_state.tailored_resume,
-                                job_title=job_title_val,
                                 job_description=job_desc,
+                                job_title=job_title_val,
                             )
 
                     st.session_state.step = "results"
@@ -658,8 +712,8 @@ if st.session_state.step == "results":
             elif not analysis:
                 st.warning("⚠️ No analysis returned.")
             else:
-                method = analysis.get("analysis_method", "Google Gemini")
-                st.markdown(f'<span class="tag tag-blue">✨ {method}</span>', unsafe_allow_html=True)
+                method = analysis.get("analysis_method", "Deterministic ATS Scan")
+                st.markdown(f'<span class="tag tag-blue">🔍 {method}</span>', unsafe_allow_html=True)
                 st.markdown("### 📊 ATS Compatibility Score")
 
                 ats_score        = analysis.get("ats_score", 0)
@@ -668,11 +722,20 @@ if st.session_state.step == "results":
                 market_value     = analysis.get("market_value", "")
                 analysis_summary = analysis.get("analysis_summary", "")
                 missing_keywords = analysis.get("missing_keywords", [])
+                matched_keywords = analysis.get("matched_keywords", [])
                 strengths        = analysis.get("strengths", [])
                 weaknesses       = analysis.get("weaknesses", [])
                 suggestions      = analysis.get("specific_suggestions", analysis.get("suggestions", []))
+                detected_sections = analysis.get("detected_sections", [])
+                missing_sections  = analysis.get("missing_sections", [])
+                formatting_issues = analysis.get("formatting_issues", [])
+                achievements_found = analysis.get("achievements_found", [])
+                keyword_density   = analysis.get("keyword_density", 0)
+                word_count        = analysis.get("word_count", 0)
+                contact_info      = analysis.get("contact_info", {})
+                length_feedback   = analysis.get("length_feedback", [])
 
-                # Top metrics
+                # ── Top Metrics Row ───────────────────────────────────────────
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
                     color = score_color(int(ats_score))
@@ -706,22 +769,100 @@ if st.session_state.step == "results":
                           <div class="metric-value" style="font-size:1.1rem;color:#56d364;">{market_value}</div>
                           <div class="metric-sub">estimated</div>
                         </div>""", unsafe_allow_html=True)
+                    else:
+                        fmt_score = analysis.get("formatting_score", 0)
+                        fmt_color = score_color(int(fmt_score))
+                        st.markdown(f"""
+                        <div class="metric-box">
+                          <div class="metric-label">Formatting</div>
+                          <div class="metric-value" style="color:{fmt_color};">{fmt_score}</div>
+                          <div class="metric-sub">/ 100</div>
+                        </div>""", unsafe_allow_html=True)
 
-                # Sub-scores
-                sub_scores = {
-                    "Formatting":  analysis.get("formatting_score"),
-                    "Experience":  analysis.get("experience_score"),
-                    "Education":   analysis.get("education_score"),
-                    "Skills":      analysis.get("skills_score"),
-                }
-                real_sub = {k: v for k, v in sub_scores.items() if v is not None}
-                if real_sub:
+                # ── Deterministic Sub-Score Breakdown ─────────────────────────
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.expander("📊 Detailed Score Breakdown (Deterministic)", expanded=True):
+                    sub_scores = {
+                        "Sections":     analysis.get("section_score", 0),
+                        "Keywords":     analysis.get("keyword_match", 0),
+                        "Formatting":   analysis.get("formatting_score", 0),
+                        "Achievements": analysis.get("achievements_score", 0),
+                        "Length":       analysis.get("length_score", 0),
+                        "Contact Info": analysis.get("contact_score", 0),
+                    }
+                    for label, val in sub_scores.items():
+                        score_bar(int(val), label)
+
+                    # Word count and keyword density info
+                    density_color = "#56d364" if 1.5 <= keyword_density <= 4.0 else ("#d29922" if keyword_density > 4.0 else "#8b949e")
+                    st.markdown(f"""
+                    <div style="display:flex;gap:2rem;margin-top:0.75rem;flex-wrap:wrap;">
+                      <div style="font-size:0.8rem;color:#8b949e;">📝 Word Count: <strong style="color:#e6edf3;">{word_count}</strong></div>
+                      <div style="font-size:0.8rem;color:#8b949e;">🔑 Keyword Density: <strong style="color:{density_color};">{keyword_density}%</strong></div>
+                    </div>""", unsafe_allow_html=True)
+
+                    # Length feedback
+                    if length_feedback:
+                        for fb in length_feedback:
+                            st.markdown(f'<div style="font-size:0.8rem;color:#8b949e;margin-top:0.3rem;">📏 {fb}</div>', unsafe_allow_html=True)
+
+                    # Contact info
+                    contact_items = []
+                    for key, present in contact_info.items():
+                        icon = "✅" if present else "❌"
+                        contact_items.append(f"{icon} {key.title()}")
+                    if contact_items:
+                        st.markdown(f'<div style="font-size:0.8rem;color:#8b949e;margin-top:0.5rem;">📋 Contact: {" &nbsp;·&nbsp; ".join(contact_items)}</div>', unsafe_allow_html=True)
+
+                # ── Sections Detected / Missing ──────────────────────────────
+                with st.expander("📑 Resume Sections", expanded=False):
+                    if detected_sections:
+                        det_tags = "".join(f'<span class="tag tag-green">{s}</span>' for s in detected_sections)
+                        st.markdown(f'<div style="margin-bottom:0.5rem;"><strong style="color:#8b949e;font-size:0.8rem;">DETECTED:</strong><br>{det_tags}</div>', unsafe_allow_html=True)
+                    if missing_sections:
+                        miss_tags = "".join(f'<span class="tag tag-red">{s}</span>' for s in missing_sections)
+                        st.markdown(f'<div><strong style="color:#8b949e;font-size:0.8rem;">MISSING:</strong><br>{miss_tags}</div>', unsafe_allow_html=True)
+                    if not missing_sections:
+                        st.markdown('<span class="tag tag-green">✓ All standard sections detected!</span>', unsafe_allow_html=True)
+
+                # ── Keywords ─────────────────────────────────────────────────
+                st.markdown("<br>", unsafe_allow_html=True)
+                col_l, col_r = st.columns(2)
+
+                with col_l:
+                    st.markdown("#### 🔑 Missing Keywords")
+                    if missing_keywords:
+                        tags = "".join(f'<span class="tag tag-red">{kw}</span>' for kw in missing_keywords[:15])
+                        st.markdown(f'<div style="margin-top:0.5rem;">{tags}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span class="tag tag-green">✓ Great keyword coverage!</span>', unsafe_allow_html=True)
+
+                with col_r:
+                    st.markdown("#### ✅ Matched Keywords")
+                    if matched_keywords:
+                        tags = "".join(f'<span class="tag tag-green">{kw}</span>' for kw in matched_keywords[:15])
+                        st.markdown(f'<div style="margin-top:0.5rem;">{tags}</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span class="tag tag-red">⚠ No keyword matches found</span>', unsafe_allow_html=True)
+
+                # ── Formatting Issues ────────────────────────────────────────
+                if formatting_issues:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    with st.expander("📊 Detailed Score Breakdown", expanded=False):
-                        for label, val in real_sub.items():
-                            score_bar(int(val), label)
+                    st.markdown("#### ⚠️ Formatting Issues")
+                    for issue in formatting_issues:
+                        st.markdown(f"""
+                        <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
+                          <span style="color:#d29922;flex-shrink:0;">⚠</span>
+                          <span style="color:#e6edf3;font-size:0.9rem;">{issue}</span>
+                        </div>""", unsafe_allow_html=True)
 
-                # Summary
+                # ── Quantified Achievements ──────────────────────────────────
+                if achievements_found:
+                    with st.expander(f"📈 Quantified Achievements Found ({len(achievements_found)})", expanded=False):
+                        tags = "".join(f'<span class="tag tag-blue">{a}</span>' for a in achievements_found)
+                        st.markdown(f'<div>{tags}</div>', unsafe_allow_html=True)
+
+                # ── AI Summary ───────────────────────────────────────────────
                 if analysis_summary:
                     st.markdown(f"""
                     <div class="card card-accent" style="margin-top:1rem;">
@@ -730,19 +871,12 @@ if st.session_state.step == "results":
                     </div>
                     """, unsafe_allow_html=True)
 
+                # ── AI Strengths & Weaknesses ────────────────────────────────
                 st.markdown("<br>", unsafe_allow_html=True)
-                col_l, col_r = st.columns(2)
+                col_s, col_w = st.columns(2)
 
-                with col_l:
-                    st.markdown("#### 🔑 Missing Keywords")
-                    if missing_keywords:
-                        tags = "".join(f'<span class="tag tag-red">{kw}</span>' for kw in missing_keywords)
-                        st.markdown(f'<div style="margin-top:0.5rem;">{tags}</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="tag tag-green">✓ Great keyword coverage!</span>', unsafe_allow_html=True)
-
-                with col_r:
-                    st.markdown("#### ✅ Key Strengths")
+                with col_s:
+                    st.markdown("#### ✅ Strengths")
                     if strengths:
                         for s in strengths:
                             st.markdown(f"""
@@ -751,16 +885,17 @@ if st.session_state.step == "results":
                               <span style="color:#e6edf3;font-size:0.9rem;">{s}</span>
                             </div>""", unsafe_allow_html=True)
 
-                if weaknesses:
-                    st.markdown("<br>", unsafe_allow_html=True)
+                with col_w:
                     st.markdown("#### ⚠️ Areas to Improve")
-                    for w in weaknesses:
-                        st.markdown(f"""
-                        <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
-                          <span style="color:#d29922;flex-shrink:0;">⚠</span>
-                          <span style="color:#e6edf3;font-size:0.9rem;">{w}</span>
-                        </div>""", unsafe_allow_html=True)
+                    if weaknesses:
+                        for w in weaknesses:
+                            st.markdown(f"""
+                            <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
+                              <span style="color:#d29922;flex-shrink:0;">⚠</span>
+                              <span style="color:#e6edf3;font-size:0.9rem;">{w}</span>
+                            </div>""", unsafe_allow_html=True)
 
+                # ── AI Improvement Suggestions ───────────────────────────────
                 if suggestions:
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown("#### 🤖 AI Improvement Suggestions")
@@ -768,7 +903,6 @@ if st.session_state.step == "results":
                         text = s.get("suggestion", str(s)) if isinstance(s, dict) else str(s)
                         area = s.get("area", "") if isinstance(s, dict) else ""
                         
-                        # Build HTML string manually to avoid f-string indentation issues
                         area_html = f'<div style="margin-top:0.3rem;"><span class="tag tag-blue" style="font-size:0.7rem;">{area}</span></div>' if area else ""
                         
                         card_html = (
@@ -808,7 +942,7 @@ if st.session_state.step == "results":
 
                 # ── ATS Before / After Comparison ────────────────────────────
                 orig_score    = int(analysis.get("ats_score", 0)) if analysis else None
-                revised_score = int(tailored_ats.get("ats_score", 0)) if tailored_ats else None
+                revised_score = int(tailored_ats.get("overall_score", 0)) if tailored_ats else None
 
                 if revised_score is not None:
                     delta      = (revised_score - orig_score) if orig_score is not None else None
@@ -859,12 +993,29 @@ if st.session_state.step == "results":
                 st.markdown(tailored)
 
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.download_button(
-                    label="⬇️ Download Tailored Resume (.md)",
-                    data=tailored,
-                    file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.md",
-                    mime="text/markdown",
-                )
+                dl_col1, dl_col2 = st.columns(2)
+                with dl_col1:
+                    # PDF download (primary)
+                    try:
+                        from utils.pdf_generator import markdown_to_pdf
+                        pdf_bytes = markdown_to_pdf(tailored)
+                        st.download_button(
+                            label="⬇️ Download Resume (.pdf)",
+                            data=pdf_bytes,
+                            file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                        )
+                    except Exception as e:
+                        st.warning(f"PDF generation failed: {e}. Use the Markdown download instead.")
+                with dl_col2:
+                    # Markdown download (secondary)
+                    st.download_button(
+                        label="⬇️ Download Resume (.md)",
+                        data=tailored,
+                        file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.md",
+                        mime="text/markdown",
+                    )
 
         # ── Generate More Panel ────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
@@ -928,19 +1079,20 @@ if st.session_state.step == "results":
 
                         if gen_tailor:
                             from tools.gemini_resume_builder import GeminiResumeBuilder
-                            from utils.gemini_ats import GeminiATSScorer
+                            from utils.ats_scanner import ATSScanner
                             builder = GeminiResumeBuilder()
                             st.session_state.tailored_resume = builder.build_resume(
                                 resume_text=resume_text,
-                                job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc}
+                                job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc},
+                                ats_results=analysis,
                             )
-                            # Score the tailored resume to show improvement
+                            # Re-score with deterministic scanner only (no extra Gemini call)
                             if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
-                                scorer2 = GeminiATSScorer()
-                                st.session_state.tailored_ats = scorer2.analyze_resume(
+                                det_scanner = ATSScanner()
+                                st.session_state.tailored_ats = det_scanner.scan(
                                     resume_text=st.session_state.tailored_resume,
-                                    job_title=job_title_val,
                                     job_description=job_desc,
+                                    job_title=job_title_val,
                                 )
                     st.rerun()
 

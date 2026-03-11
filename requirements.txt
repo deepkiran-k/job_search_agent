@@ -26,3 +26,6 @@ httpx-sse==0.4.0
 # Pydantic
 pydantic==2.5.0
 pydantic-core==2.14.1
+
+# PDF generation
+fpdf2

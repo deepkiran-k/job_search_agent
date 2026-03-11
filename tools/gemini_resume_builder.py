@@ -4,15 +4,19 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from config.settings import settings
 
 class GeminiResumeBuilder:
-    """Uses Gemini to actively rewrite and tailor a resume for a specific job."""
+    """Uses Gemini to actively rewrite and tailor a resume for a specific job,
+    guided by deterministic ATS scan results for targeted improvements."""
     
     def __init__(self):
         self.llm = settings.get_gemini_llm()
         
-    def build_resume(self, resume_text: str, job_info: dict) -> str:
+    def build_resume(self, resume_text: str, job_info: dict, ats_results: dict = None) -> str:
         """
         Rewrites the given resume to be tailored to the job description, 
         yielding a highly ATS-optimized markdown resume.
+        
+        If ats_results (from ATSScanner) is provided, uses them to guide
+        exactly which keywords to add, sections to fix, etc.
         """
         if not self.llm:
             return "Error: Gemini LLM is not configured properly."
@@ -21,31 +25,84 @@ class GeminiResumeBuilder:
         job_company = job_info.get("company", "Unknown Company")
         job_description = job_info.get("description", "")
         
-        prompt = f"""You are an elite executive resume writer and ATS optimization expert. 
-Your task is to completely rewrite and tailor the provided resume for the specific job description below.
+        # Build ATS guidance block if deterministic results are available
+        ats_guidance = ""
+        if ats_results:
+            missing_kw = ats_results.get("missing_keywords", [])
+            missing_sec = ats_results.get("missing_sections", [])
+            fmt_issues = ats_results.get("formatting_issues", [])
+            length_fb = ats_results.get("length_feedback", [])
+            contact = ats_results.get("contact_info", {})
+            achievements_score = ats_results.get("achievements_score", 100)
+            
+            guidance_parts = []
+            if missing_kw:
+                # Give very specific instructions per keyword
+                kw_list = missing_kw[:20]
+                guidance_parts.append(
+                    f"MISSING KEYWORDS — You MUST naturally weave EVERY one of these into "
+                    f"bullet points, skills sections, or the summary. Do NOT list them in a "
+                    f"separate block; integrate each into an existing or new achievement "
+                    f"sentence:\n  " + "\n  ".join(f"• {kw}" for kw in kw_list)
+                )
+            if missing_sec:
+                guidance_parts.append(
+                    f"MISSING SECTIONS — You MUST add these standard resume sections: "
+                    f"{', '.join(missing_sec)}. Use the exact header names: SUMMARY, SKILLS, "
+                    f"EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS."
+                )
+            if fmt_issues:
+                guidance_parts.append(f"FORMATTING ISSUES TO FIX: {'; '.join(fmt_issues)}")
+            if length_fb:
+                guidance_parts.append(f"LENGTH: {'; '.join(length_fb)}")
+            if achievements_score < 80:
+                guidance_parts.append(
+                    "ACHIEVEMENTS — The resume lacks quantified metrics. You MUST include at "
+                    "least 5 bullet points with concrete numbers (percentages, dollar amounts, "
+                    "team sizes, time saved, users impacted, etc.). Infer reasonable impact "
+                    "from the context but do NOT fabricate specific numbers that weren't implied."
+                )
+            if not contact.get("linkedin"):
+                guidance_parts.append("Add a LinkedIn profile URL placeholder: linkedin.com/in/yourprofile")
+            
+            if guidance_parts:
+                ats_guidance = (
+                    "\n\nATS SCAN FINDINGS — You MUST address ALL of these in the rewrite. "
+                    "The rewritten resume will be re-scanned by the same ATS engine, so every "
+                    "item below directly impacts the score:\n" +
+                    "\n".join(f"\n{i+1}. {g}" for i, g in enumerate(guidance_parts))
+                )
+        
+        prompt = f"""You are an elite resume writer and ATS strategist. Rewrite the resume below for this specific role. The result will be re-scored by an ATS engine.
 
-JOB TITLE: {job_title}
-COMPANY: {job_company}
+JOB: {job_title} at {job_company}
 JOB DESCRIPTION:
 {job_description}
 
-ORIGINAL RESUME:
+RESUME:
 {resume_text}
+{ats_guidance}
 
-Follow these strict guidelines when rewriting the resume:
-1.  **Professional Summary (Objective):** Create a compelling 3-4 sentence professional summary tailored to this specific job. Highlight the candidate's core value proposition, key achievements, and explicitly state what they bring to {job_company}. Use keywords from the job description naturally.
-2.  **Tailored Bullet Points:** Rewrite the experience bullet points to match the responsibilities and requirements of the target job.
-    *   Focus on accomplishments, not just duties.
-    *   Use strong action verbs.
-    *   Incorporate relevant metrics and quantifiable results. If exact metrics are missing from the original resume, focus on the explicit impact of the work, but do not invent fake numbers.
-    *   Ensure the most relevant experience for this job is prioritized.
-3.  **Readability and ATS Compatibility:** 
-    *   Format the entire resume cleanly using standard Markdown formatting (headers, bold text, bullet points).
-    *   Ensure a logical flow: Professional Summary -> Skills -> Experience -> Education.
-    *   Remove any fluff or irrelevant information that does not serve the goal of landing this specific role.
+REWRITE RULES:
 
-Output ONLY the raw markdown of the final, tailored resume. Do not include introductory text, explanations, or markdown code block wrappers (like ```markdown). Just output the raw readable markdown text itself.
-"""
+**SUMMARY** (4-5 sentences): Highlight the candidate's unique value for THIS role. Weave in 3-4 JD keywords naturally. End with a forward-looking statement about contributing to {job_company}.
+
+**SKILLS**: List all JD-relevant skills the candidate plausibly has, grouped by category.
+
+**EXPERIENCE**: First identify the top skill gaps between the JD and resume — then reframe existing experience to fill them. For each role:
+- 4-6 bullets max, most relevant first
+- Start with strong action verbs, quantify impact (%, $, team size, scale)
+- Integrate JD keywords IN CONTEXT within achievement sentences — never keyword-dump
+- First-person implied (no "I"), professional and concise
+- If employment gaps exist, subtly address them
+
+**EDUCATION / PROJECTS / CERTIFICATIONS**: Include all. Add relevant certifications commonly expected for this role (mark as "In Progress" or "Add if applicable" if not in the original).
+
+**FORMAT**: Use `#` for name, `##` for section headers, `-` for bullets (no special chars). Bold job titles and companies. Include email, phone, LinkedIn. Aim for 400-700 words.
+
+Section order: SUMMARY → SKILLS → EXPERIENCE → EDUCATION → PROJECTS → CERTIFICATIONS
+
+Output ONLY raw markdown — no intro text, no explanations, no code fences."""
         
         try:
             messages = [
@@ -66,4 +123,7 @@ Output ONLY the raw markdown of the final, tailored resume. Do not include intro
             return content.strip()
             
         except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
+                return "⚠️ Gemini API Quota Exceeded. Auto-revision is temporarily unavailable. Please try again later or upgrade your Gemini plan."
             return f"Error generating tailored resume: {e}"
