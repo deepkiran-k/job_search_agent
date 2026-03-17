@@ -21,14 +21,14 @@ An AI-powered job search and resume optimization platform. Search real jobs from
 ### 📊 Deterministic ATS Scoring
 Resume scoring engine that mirrors real ATS software:
 
-| Dimension | Weight | What It Checks |
+| Dimension | Weight | Rationale |
 |---|---|---|
-| Keywords | 30% | JD-specific terms via NLP-lite bigram/unigram extraction |
-| Sections | 20% | Standard resume sections (Summary, Skills, Experience, etc.) |
-| Formatting | 20% | Bullet consistency, special characters, blank lines |
-| Achievements | 10% | Quantified metrics ($, %, team sizes, time saved) |
-| Length | 10% | Optimal 300–800 words |
-| Contact | 10% | Email, phone, LinkedIn presence |
+| Keywords (Hard Skills) | 35% | Still the #1 search filter for recruiters. |
+| Achievements (Metrics) | 20% | The primary differentiator in 2026 ranking algorithms. |
+| Sections & Structure | 15% | Essential for parsing, but less "valuable" once confirmed. |
+| Formatting | 15% | High weight because "bad" formatting breaks the parser entirely. |
+| Contact & Presence | 10% | LinkedIn/GitHub/Email are the "bare minimum" pass/fail. |
+| Length/Density | 5% | Important for humans, but most 2026 ATS handle multi-page well. |
 
 > **Zero API calls** — pure Python string analysis for consistent, reproducible scores.
 

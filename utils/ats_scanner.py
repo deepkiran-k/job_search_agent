@@ -32,14 +32,13 @@ class ATSScanner:
         (r"(?:(?:https?://|www\.)\S+){4,}", "Too many raw URLs (use hyperlinked text instead)"),
     ]
 
-    # Weights for each sub-score
     WEIGHTS = {
-        "section":      0.20,
-        "keyword":      0.30,
-        "formatting":   0.20,
-        "achievements": 0.10,
-        "length":       0.10,
+        "keyword":      0.35,
+        "achievements": 0.20,
+        "section":      0.15,
+        "formatting":   0.15,
         "contact":      0.10,
+        "length":       0.05,
     }
 
     # ── Public API ────────────────────────────────────────────────────────────
