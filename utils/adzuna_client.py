@@ -13,7 +13,8 @@ COUNTRY_NAMES = {
     "india", "united states", "usa", "us", "united kingdom", "uk", "canada",
     "australia", "germany", "france", "italy", "netherlands", "poland",
     "spain", "brazil", "mexico", "south africa", "new zealand", "singapore",
-    "united arab emirates", "uae",
+    "united arab emirates", "uae", "saudi arabia", "austria", "belgium",
+    "switzerland",
 }
 
 def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "") -> List[Dict[str, Any]]:

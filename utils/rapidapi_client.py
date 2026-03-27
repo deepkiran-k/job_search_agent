@@ -13,6 +13,8 @@ COUNTRY_CODE_TO_NAME = {
     "de": "Germany", "fr": "France", "it": "Italy", "nl": "Netherlands",
     "pl": "Poland", "es": "Spain", "br": "Brazil", "mx": "Mexico",
     "za": "South Africa", "nz": "New Zealand", "sg": "Singapore",
+    "sa": "Saudi Arabia", "at": "Austria", "be": "Belgium",
+    "ch": "Switzerland",
 }
 
 def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us") -> List[Dict[str, Any]]:
@@ -61,8 +63,8 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             "query": query,
             "page": "1",
             "num_pages": "1",
-            # 3days gives the freshest listings without being too narrow (today can timeout)
-            "date_posted": "3days"
+            "country": country.lower(),
+            # "date_posted": "3days" # Disabled to increase coverage in international regions
         }
         
         # Add remote filter specifically if requested
@@ -97,6 +99,21 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             company = result.get("employer_name", "Unknown Company")
             desc = result.get("job_description", "")
             
+            # Fallback: If description is missing, build it from highlights (Google Jobs often does this)
+            is_highlights_only = False
+            if not desc:
+                highlights = result.get("job_highlights", {})
+                parts = []
+                for key in ["Qualifications", "Responsibilities", "Benefits"]:
+                    if highlights.get(key) and isinstance(highlights[key], list):
+                        # Format as a bulleted section
+                        section_text = f"\n{key}:\n" + "\n".join([f"• {item}" for item in highlights[key]])
+                        parts.append(section_text)
+                
+                if parts:
+                    desc = "\n".join(parts).strip()
+                    is_highlights_only = True
+            
             # Apply experience filters locally
             if experience:
                 text_to_check = f"{title} {desc}"
@@ -130,16 +147,35 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             else:
                 location_display = ", ".join(loc_parts) if loc_parts else location
                 
+            # Extract posted date in numeric YYYY-MM-DD format
+            posted_date = ""
+            raw_utc = result.get("job_posted_at_datetime_utc")
+            ts = result.get("job_posted_at_timestamp")
+            raw_relative = result.get("job_posted_at") # e.g. "قبل ٣ أيام" or "2 days ago"
+            
+            if raw_utc:
+                posted_date = raw_utc[:10]
+            elif ts:
+                from datetime import datetime, timezone
+                try:
+                    posted_date = datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+                except: pass
+            
+            # Final fallback: Parse "3 days ago" (even if localized) into a numeric date
+            if not posted_date and raw_relative:
+                posted_date = _parse_relative_date(raw_relative)
+
             job = {
                 "id": result.get("job_id", ""),
                 "title": title,
                 "company": company,
                 "location": location_display,
-                "description": desc[:2000] if desc else "",
+                "description": desc[:3000] if desc else "", # Increased limit slightly for formatted highlights
+                "is_highlights_only": is_highlights_only,
                 "salary_min": salary_min,
                 "salary_max": salary_max,
                 "salary_display": salary_display,
-                "posted_date": result.get("job_posted_at_datetime_utc", ""),
+                "posted_date": posted_date,
                 "url": result.get("job_apply_link", ""),
                 "contract_type": result.get("job_employment_type", ""),
                 "category": title, # Jsearch doesn't have a distinct broad category field
@@ -155,3 +191,143 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
     except Exception as e:
         print(f"JSearch failed: {e}")
         return []
+
+
+def fetch_job_details(job_id: str, api_key: str) -> Optional[str]:
+    """
+    Fetch the full job description for a single job using JSearch's /job-details endpoint.
+    
+    Args:
+        job_id: The JSearch job ID
+        api_key: RapidAPI key
+        
+    Returns:
+        Full job description string, or None if not available
+    """
+    try:
+        url = "https://jsearch.p.rapidapi.com/job-details"
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "jsearch.p.rapidapi.com"
+        }
+        params = {"job_id": job_id, "extended_publisher_details": "false"}
+        
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+        
+        data = response.json()
+        results = data.get("data", [])
+        
+        if results and len(results) > 0:
+            desc = results[0].get("job_description", "")
+            if desc and len(desc.strip()) > 50:
+                return desc.strip()
+        
+        return None
+        
+    except Exception as e:
+        print(f"JSearch job-details failed for {job_id}: {e}")
+        return None
+
+
+def enrich_jsearch_jobs(jobs: List[Dict[str, Any]], min_desc_length: int = 100) -> List[Dict[str, Any]]:
+    """
+    Enrich JSearch jobs that have missing or very short descriptions
+    by calling the /job-details endpoint for each one that needs it.
+    
+    Only enriches jobs sourced from JSearch (identified by source field).
+    Runs sequentially to be respectful of rate limits.
+    
+    Args:
+        jobs: List of job dictionaries (may include Adzuna + JSearch jobs)
+        min_desc_length: Minimum description length to consider "complete"
+        
+    Returns:
+        The same list with descriptions filled in where possible
+    """
+    api_key = os.getenv("RAPIDAPI_KEY")
+    if not api_key:
+        return jobs
+    
+    enriched_count = 0
+    
+    for job in jobs:
+        # Only enrich JSearch jobs — Adzuna has no detail endpoint
+        if "JSearch" not in job.get("source", ""):
+            continue
+        
+        desc = job.get("description", "")
+        job_id = job.get("id", "")
+        
+        # Skip if description is already long enough or no job_id
+        if len(desc.strip()) >= min_desc_length or not job_id:
+            continue
+        
+        # Fetch full details
+        full_desc = fetch_job_details(job_id, api_key)
+        
+        if full_desc:
+            job["description"] = full_desc[:5000]  # Cap at 5000 chars
+            job["is_highlights_only"] = False
+            enriched_count += 1
+            print(f"  [+] Enriched: {job.get('title', 'Unknown')} @ {job.get('company', 'Unknown')}")
+        else:
+            print(f"  [-] Could not enrich: {job.get('title', 'Unknown')} (no details available)")
+    
+    if enriched_count > 0:
+        print(f"Enriched {enriched_count} job(s) with full descriptions.")
+    
+    return jobs
+
+
+def _parse_relative_date(text: str) -> str:
+    """
+    Attempts to parse a relative date string (even if localized) 
+    into a numeric YYYY-MM-DD string.
+    """
+    import re
+    from datetime import datetime, timedelta
+    
+    # Normalize Arabic/Urdu digits to English digits
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+    for i, d in enumerate(arabic_digits):
+        text = text.replace(d, str(i))
+    
+    # Extract the first number found
+    match = re.search(r'(\d+)', text)
+    if not match:
+        return ""
+    
+    num = int(match.group(1))
+    now = datetime.now()
+    
+    # Determine the unit (even if localized, we can check for common substrings or just assume days/hours)
+    # Most JSearch relative strings are: "x hours ago", "x days ago", "x weeks ago", "x months ago"
+    text_lower = text.lower()
+    
+    # Define keywords for supported languages
+    # Days
+    if any(k in text_lower for k in [
+        "day", "يوم", "أيام", "tag", "jour", "día", "dia", "giorno", "dag", "dzień"
+    ]):
+        delta = timedelta(days=num)
+    # Hours
+    elif any(k in text_lower for k in [
+        "hour", "ساعة", "stunde", "heure", "hora", "ora", "uur", "godzina"
+    ]):
+        delta = timedelta(hours=num)
+    # Weeks
+    elif any(k in text_lower for k in [
+        "week", "أسبوع", "woche", "semaine", "semana", "settimana", "week", "tydzień"
+    ]):
+        delta = timedelta(weeks=num)
+    # Months
+    elif any(k in text_lower for k in [
+        "month", "شهر", "monat", "mois", "mes", "mese", "maand", "miesiąc"
+    ]):
+        delta = timedelta(days=num * 30)
+    else:
+        # Default to days if we found a number but aren't sure of the unit
+        delta = timedelta(days=num)
+        
+    return (now - delta).strftime("%Y-%m-%d")

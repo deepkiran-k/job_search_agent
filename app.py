@@ -267,6 +267,10 @@ with st.sidebar:
         "za": "🇿🇦 South Africa",
         "nz": "🇳🇿 New Zealand",
         "sg": "🇸🇬 Singapore",
+        "sa": "🇸🇦 Saudi Arabia",
+        "at": "🇦🇹 Austria",
+        "be": "🇧🇪 Belgium",
+        "ch": "🇨🇭 Switzerland",
     }
     country_code = st.selectbox(
         "Country", 
@@ -360,7 +364,7 @@ if search_clicked:
         with st.spinner(f"🔍 Searching Adzuna & RapidAPI for **{st.session_state.job_title}** positions..."):
             try:
                 from utils.adzuna_client import search_adzuna
-                from utils.rapidapi_client import search_jsearch
+                from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
                 import concurrent.futures
                 
                 all_jobs = []
@@ -426,6 +430,20 @@ if search_clicked:
             except Exception as e:
                 st.session_state.error = f"Job search failed: {e}"
                 st.session_state.step = "search"
+
+        # Enrich JSearch jobs with full descriptions (separate spinner)
+        if st.session_state.jobs and st.session_state.step == "select_job":
+            # Count how many JSearch jobs need enrichment
+            needs_enrichment = [
+                j for j in st.session_state.jobs
+                if "JSearch" in j.get("source", "") and len(j.get("description", "").strip()) < 100
+            ]
+            if needs_enrichment:
+                with st.spinner(f"📄 Fetching full descriptions for {len(needs_enrichment)} job(s)..."):
+                    try:
+                        enrich_jsearch_jobs(st.session_state.jobs)
+                    except Exception as e:
+                        print(f"Enrichment failed (non-fatal): {e}")
         # Search done — results stored in session state, fall through to render below
 
 
@@ -441,6 +459,7 @@ if st.session_state.step == "select_job":
         st.warning("⚠️ No jobs were returned. Try a broader title or different location.")
     else:
         st.markdown(f"### 💼 Found {len(jobs)} Jobs — Click one to analyze it")
+
     st.markdown("<p style='color:#8b949e;font-size:0.9rem;margin-top:-0.5rem;'>Select the job that interests you most. Your resume will be analyzed against that specific role.</p>", unsafe_allow_html=True)
 
     for i, job in enumerate(jobs):
@@ -462,8 +481,25 @@ if st.session_state.step == "select_job":
         contract_html = f'<span class="tag tag-yellow">{contract}</span>' if contract else ""
         posted_html   = f'<span style="font-size:0.75rem;color:#8b949e;">Posted: {posted}</span>' if posted else ""
         url_html      = f'<a href="{url}" target="_blank" style="color:#79c0ff;font-size:0.8rem;text-decoration:none;">View listing →</a>' if url else ""
+        
         desc_short    = (description[:280] + "…") if len(description) > 280 else description
 
+        # Prepare description HTML safely
+        desc_html = ""
+        if description:
+            # Clean up and truncate
+            if job.get("is_highlights_only"):
+                # For highlights fallback, preserve line breaks
+                clean_desc = description.replace("\n", "<br>")
+            else:
+                clean_desc = description.replace("\n\n", "\n").replace("\n", " ").strip()
+                if len(clean_desc) > 300:
+                    clean_desc = clean_desc[:300] + "..."
+            
+            # Using triple double quotes for the inner HTML to avoid escaping issues with single quotes
+            desc_html = f"""<div style="font-size:0.82rem;color:#8b949e;margin-top:0.75rem;line-height:1.5;">{clean_desc}</div>"""
+
+        # Render the card
         st.markdown(f"""
         <div class="job-card">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
@@ -477,7 +513,7 @@ if st.session_state.step == "select_job":
               <div style="margin-top:0.3rem;">{url_html}</div>
             </div>
           </div>
-          {f'<div style="font-size:0.82rem;color:#8b949e;margin-top:0.75rem;line-height:1.5;">{desc_short}</div>' if desc_short else ""}
+          {desc_html}
           <div style="margin-top:0.5rem;">{posted_html}</div>
         </div>
         """, unsafe_allow_html=True)
