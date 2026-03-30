@@ -38,6 +38,10 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
         print("Error: Adzuna credentials not found in environment")
         return []
     
+    # Adzuna does not support these regions. Skip to avoid 404 errors.
+    if country.lower() in ["sa", "ae"]:
+        return []
+        
     try:
         # Build search query
         what = job_title.strip()

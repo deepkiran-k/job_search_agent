@@ -3,144 +3,223 @@ AI Job Search Agent - Streamlit UI
 3-step pipeline: Search → Select Job → Analyze (ATS + Cover Letter)
 Gemini is called ONLY twice: once for ATS scoring, once for cover letter.
 """
-import os
-import json
-import asyncio
-# Ensure event loop exists in Streamlit Cloud's ScriptRunner thread
+# ── Lottie helpers ────────────────────────────────────────────────────────────
+LOTTIE_SEARCH_URL  = "https://lottie.host/4db68bbd-31f6-4cd8-84eb-189571e55e79/2LGBAlBYkU.json"
+LOTTIE_ANALYZE_URL = "https://lottie.host/06e32af1-7e96-4ddd-8b97-57b44baed110/3rEDGfrBPu.json"
+
+import os, json, asyncio
 try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
+
 import streamlit as st
+from streamlit_lottie import st_lottie
+import requests as _requests
+
+def _load_lottie_url(url: str):
+    try:
+        r = _requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
+_sidebar_state = "collapsed" if "step" not in st.session_state or st.session_state.get("step") == "search" else "expanded"
 st.set_page_config(
-    page_title="AI Job Search Agent",
-    page_icon="🤖",
+    page_title="JobOrbit AI",
+    page_icon="🟢",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state=_sidebar_state,
 )
 
-# ── Env / imports ─────────────────────────────────────────────────────────────
 os.environ.setdefault("OPENAI_API_KEY", "sk-dummy-not-used-gemini-handles-llm")
-
 from config.settings import settings
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CSS
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-
-/* Dark background */
-.stApp { background: #0d1117; color: #e6edf3; }
-
-/* Sidebar */
-section[data-testid="stSidebar"] { background: #161b22; border-right: 1px solid #30363d; }
-section[data-testid="stSidebar"] * { color: #e6edf3 !important; }
-
-/* Cards */
-.card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 1rem;
-}
-.card-accent { border-left: 4px solid #1f6feb; }
-.card-green  { border-left: 4px solid #238636; }
-.card-orange { border-left: 4px solid #d29922; }
-
-/* Metric boxes */
-.metric-box {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 1rem;
-    text-align: center;
-}
-.metric-label { font-size: 0.75rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
-.metric-value { font-size: 2rem; font-weight: 700; color: #e6edf3; }
-.metric-sub   { font-size: 0.8rem; color: #8b949e; margin-top: 0.15rem; }
-
-/* Score bar */
-.score-bar-bg { background: #21262d; border-radius: 999px; height: 8px; margin-top: 0.4rem; }
-.score-bar-fill { height: 8px; border-radius: 999px; }
-
-/* Tags */
-.tag {
-    display: inline-block;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    margin: 0.15rem;
-}
-.tag-blue   { background: #1f3a5f; color: #79c0ff; border: 1px solid #1f6feb; }
-.tag-green  { background: #1a3a2a; color: #56d364; border: 1px solid #238636; }
-.tag-red    { background: #3a1a1a; color: #f85149; border: 1px solid #da3633; }
-.tag-yellow { background: #3a2e1a; color: #e3b341; border: 1px solid #d29922; }
-
-/* Job card */
-.job-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    margin-bottom: 0.75rem;
-    transition: border-color 0.2s;
-}
-.job-card:hover { border-color: #1f6feb; }
-.job-card-selected { border-color: #238636 !important; background: #0d1f14; }
-
-/* Cover letter box */
-.cover-letter {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: 2rem;
-    white-space: pre-wrap;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.95rem;
-    line-height: 1.7;
-    color: #e6edf3;
+:root {
+    --bg:      #0B0E0C;
+    --surface: #121814;
+    --surf2:   #1A221C;
+    --border:  #26332A;
+    --border2: #36473A;
+    --green:   #16A34A;
+    --green2:  #4ADE80;
+    --greenlt: rgba(22, 163, 74, 0.15);
+    --text:    #EAFAEF;
+    --muted:   #8A9E92;
+    --muted2:  #607267;
+    --amber:   #F59E0B;
+    --red:     #EF4444;
+    --r:       12px;
+    --r-sm:    8px;
 }
 
-/* Step indicator */
-.step-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 1.5rem;
+html, body, [class*="css"] {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    color: var(--text);
 }
-.step-dot {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 700;
-    flex-shrink: 0;
-}
-.step-dot-active   { background: #1f6feb; color: white; }
-.step-dot-done     { background: #238636; color: white; }
-.step-dot-inactive { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
-.step-line { flex: 1; height: 2px; background: #30363d; }
-.step-line-done { background: #238636; }
 
-/* Hide Streamlit chrome */
+.stApp { background: var(--bg); color: var(--text); }
+
+/* ── Topbar ── */
+.topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1.5rem; height: 52px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+}
+.topbar-logo { display: flex; align-items: center; gap: 7px; font-size: 0.95rem; font-weight: 700; color: var(--text); }
+.logo-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex-shrink:0; }
+.step-pills { display: flex; align-items: center; gap: 4px; }
+.spill { padding: 4px 13px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); color: var(--muted2); background: transparent; white-space: nowrap; }
+.spill-active { background: var(--greenlt); color: var(--green2); border-color: #86EFAC; }
+.spill-done   { background: var(--green);   color: white;         border-color: transparent; }
+.spill-sep    { width: 18px; height: 1px; background: var(--border); }
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] { background: var(--surface); border-right: 1px solid var(--border); }
+section[data-testid="stSidebar"] .stMarkdown h2 { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--green); }
+section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] select { background: var(--surf2) !important; border: 1px solid var(--border) !important; color: var(--text) !important; border-radius: var(--r-sm) !important; }
+
+/* ── Cards ── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.1rem 1.4rem; margin-bottom: 0.85rem; }
+.card-green  { border-left: 3px solid var(--green); }
+.card-accent { border-left: 3px solid #6366F1; }
+.card-amber  { border-left: 3px solid var(--amber); }
+
+/* ── Job banner ── */
+.job-banner { background: var(--surf2); border: 1px solid var(--border2); border-radius: var(--r); padding: 1.1rem 1.4rem; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem; border-left: 4px solid var(--green); }
+.job-banner-title { font-size: 1.05rem; font-weight: 800; color: var(--text); }
+.job-banner-meta  { font-size: 0.85rem; color: var(--muted); margin-top: 4px; }
+.apply-btn { background: var(--green); color: white !important; padding: 0.55rem 1.25rem; border-radius: var(--r-sm); font-size: 0.85rem; font-weight: 700; text-decoration: none !important; white-space: nowrap; transition: all 0.2s; box-shadow: 0 4px 12px rgba(22,163,74,0.2); }
+.apply-btn:hover { background: var(--green2); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(22,163,74,0.3); }
+
+/* ── Metric cards ── */
+.metric-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 1.25rem; }
+.metric-card { background: var(--surf2); border-radius: var(--r-sm); padding: 1rem; text-align: center; }
+.metric-num { font-size: 1.8rem; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+.metric-num-green { color: var(--green2); }
+.metric-num-amber { color: var(--amber); }
+.metric-num-red   { color: var(--red); }
+.metric-label { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted2); margin-bottom: 8px; }
+.metric-bar-bg   { background: var(--border); border-radius: 999px; height: 4px; overflow: hidden; }
+.metric-bar-fill { height: 4px; border-radius: 999px; }
+
+/* ── Score bar ── */
+.score-bar-bg  { background: var(--surf2); border-radius: 999px; height: 6px; margin-top: 0.3rem; overflow: hidden; border: 1px solid var(--border); }
+.score-bar-fill { height: 6px; border-radius: 999px; }
+
+/* ── Tags ── */
+.tag { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; margin: 0.12rem; }
+.tag-green  { background: rgba(16, 185, 129, 0.15); color: #34D399;  border: 1px solid #065F46; }
+.tag-blue   { background: rgba(59, 130, 246, 0.15); color: #60A5FA;  border: 1px solid #1E3A8A; }
+.tag-red    { background: rgba(239, 68, 68, 0.15);  color: #F87171;  border: 1px solid #7F1D1D; }
+.tag-yellow { background: rgba(245, 158, 11, 0.15); color: #FBBF24;  border: 1px solid #78350F; }
+.tag-gray   { background: var(--surf2); color: var(--muted); border: 1px solid var(--border); }
+.tag-source { background: rgba(59, 130, 246, 0.15); color: #60A5FA;  border: 1px solid #1E3A8A; font-size: 0.68rem; }
+
+/* ── Job cards ── */
+.job-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.1rem 1.25rem; margin-bottom: 0.6rem; transition: border-color .18s, box-shadow .18s; position: relative; overflow: hidden; }
+.job-card::before { content:''; position: absolute; top:0; left:0; width:3px; height:100%; background: var(--green); opacity:0; transition: opacity .18s; }
+.job-card:hover { border-color: var(--green); box-shadow: 0 4px 16px rgba(22,163,74,0.15); }
+.job-card:hover::before { opacity: 1; }
+
+/* ── Cover letter ── */
+.cover-letter { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 2rem 2.25rem; white-space: pre-wrap; font-family: 'Lora', serif; font-size: 0.96rem; line-height: 1.9; color: var(--text); }
+
+/* ── Buttons ── */
+div.stButton > button { border-radius: var(--r-sm) !important; padding: 0.5rem 1.5rem !important; font-weight: 600 !important; font-size: 0.88rem !important; border: 1px solid var(--border2) !important; background: var(--surface) !important; color: var(--text) !important; font-family: 'Plus Jakarta Sans', sans-serif !important; transition: all .15s !important; }
+div.stButton > button:hover { border-color: var(--green) !important; background: var(--greenlt) !important; transform: translateY(-1px) !important; }
+div.stButton > button[kind="primary"] { background: var(--green) !important; border-color: var(--green) !important; color: white !important; box-shadow: 0 3px 12px rgba(22,163,74,0.28) !important; }
+div.stButton > button[kind="primary"]:hover { background: var(--green2) !important; border-color: var(--green2) !important; box-shadow: 0 5px 18px rgba(22,163,74,0.36) !important; }
+
+/* ── Inputs ── */
+.stTextInput input, .stTextArea textarea { background: var(--surf2) !important; border: 1px solid var(--border) !important; color: var(--text) !important; border-radius: var(--r-sm) !important; font-family: 'Plus Jakarta Sans', sans-serif !important; }
+.stTextInput input:focus, .stTextArea textarea:focus { border-color: var(--green) !important; box-shadow: 0 0 0 3px rgba(22,163,74,0.12) !important; }
+label, .stTextInput label, .stTextArea label, .stSelectbox label { color: var(--muted) !important; font-size: 0.78rem !important; font-weight: 600 !important; letter-spacing: 0.05em !important; text-transform: uppercase !important; }
+
+/* ── Tabs ── */
+button[data-baseweb="tab"] { color: var(--muted) !important; font-weight: 600 !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-size: 0.88rem !important; }
+button[data-baseweb="tab"][aria-selected="true"] { color: var(--green2) !important; border-bottom-color: var(--green) !important; }
+div[data-testid="stTabContent"] { border: 1px solid var(--border); border-radius: 0 var(--r) var(--r) var(--r); padding: 1.25rem 1.5rem; background: var(--surface); margin-top: -1px; }
+
+/* ── Expanders ── */
+details[data-testid="stExpander"] { background: var(--surf2); border: 1px solid var(--border) !important; border-radius: var(--r-sm) !important; }
+details summary { color: var(--muted) !important; font-weight: 600 !important; }
+
+/* ── Status ── */
+div[data-testid="stStatus"] { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: var(--r) !important; }
+
+/* ── Alerts ── */
+div[data-testid="stAlert"] { border-radius: var(--r-sm) !important; font-size: 0.88rem !important; }
+
+/* ── File uploader ── */
+div[data-testid="stFileUploader"] { background: var(--surf2) !important; border: 2px dashed var(--border2) !important; border-radius: var(--r) !important; transition: border-color .18s, background .18s; }
+div[data-testid="stFileUploader"]:hover { border-color: var(--green) !important; background: var(--greenlt) !important; }
+
+/* ── Checkboxes ── */
+.stCheckbox label span { color: var(--text) !important; font-size: 0.88rem !important; text-transform: none !important; letter-spacing: normal !important; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--surf2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--green); }
+
+/* ── Headings ── */
+h1, h2, h3 { font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800 !important; color: var(--text) !important; letter-spacing: -0.02em !important; }
+
+/* ── Hero ── */
+.hero-wrap { text-align: center; padding: 3.5rem 1rem 2rem; }
+.hero-badge { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green2); background: var(--greenlt); border: 1px solid var(--border2); padding: 4px 14px; border-radius: 20px; margin-bottom: 1.25rem; }
+.hero-h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.9rem; font-weight: 800; color: var(--text); line-height: 1.12; letter-spacing: -0.025em; margin-bottom: 1rem; }
+.hero-h1 em { font-style: normal; color: var(--green2); }
+.hero-sub { font-size: 1rem; color: var(--muted); max-width: 480px; margin: 0 auto 2.25rem; line-height: 1.7; }
+
+/* ── How-it-works ── */
+.hiw-grid { display: flex; gap: 12px; margin-top: 1.5rem; }
+.hiw-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-top: 2px solid var(--green); border-radius: var(--r); padding: 1.1rem 1rem; }
+.hiw-num { font-size: 0.7rem; font-weight: 800; color: var(--green); letter-spacing: 0.06em; margin-bottom: 6px; }
+.hiw-title { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.hiw-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.55; }
+
+/* ── Eyebrow label ── */
+.eyebrow { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.35rem; }
+
+/* ── Row items (strengths / weaknesses / issues) ── */
+.row-item { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.45rem 0.75rem; border-radius: 7px; margin-bottom: 0.4rem; font-size: 0.86rem; }
+.row-item-green { background: rgba(22,163,74,0.07); border-left: 2px solid var(--green); }
+.row-item-amber { background: rgba(217,119,6,0.06);  border-left: 2px solid var(--amber); }
+.row-item-red   { background: rgba(220,38,38,0.06);   border-left: 2px solid var(--red); }
+
+/* ── Suggestion badge ── */
+.sug-badge { width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0; background: rgba(22,163,74,0.15); color: var(--green2); font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+
+/* ── HR ── */
+hr { border: none !important; border-top: 1px solid var(--border) !important; margin: 1.25rem 0 !important; }
+
+/* ── Hide Streamlit chrome ── */
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 1.5rem; }
-
-/* Tabs */
-button[data-baseweb="tab"] { color: #8b949e !important; }
-button[data-baseweb="tab"][aria-selected="true"] { color: #e6edf3 !important; border-bottom-color: #1f6feb !important; }
+.block-container { padding-top: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Session state ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Session state
+# ══════════════════════════════════════════════════════════════════════════════
 for key, default in {
-    "step": "search",        # "search" | "select_job" | "analyze" | "results"
+    "step": "search",
     "jobs": [],
     "selected_job": None,
     "analysis": None,
@@ -153,141 +232,152 @@ for key, default in {
     "error": None,
     "searching": False,
     "analyzing": False,
-    "job_title": "Software Engineer",
-    "location": "Remote",
+    "job_title": "",
+    "location": "",
     "experience": "3-5 years",
+    "country": "us",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ══════════════════════════════════════════════════════════════════════════════
 def score_color(score: int) -> str:
-    if score >= 80: return "#238636"
-    if score >= 60: return "#d29922"
-    return "#da3633"
+    if score >= 80: return "#16A34A"
+    if score >= 60: return "#D97706"
+    return "#DC2626"
+
+def score_cls(score: int) -> str:
+    if score >= 80: return "metric-num-green"
+    if score >= 60: return "metric-num-amber"
+    return "metric-num-red"
+
+def metric_card(value, label: str):
+    """Render a metric card replacing the Plotly gauge."""
+    try:
+        num_val = int(value)
+        num_str = str(num_val)
+        cls = score_cls(num_val)
+        bar_pct = min(num_val, 100)
+        color = score_color(num_val)
+    except (ValueError, TypeError):
+        num_str = str(value)
+        cls = "metric-num-green"
+        bar_pct = 80
+        color = "#16A34A"
+    st.markdown(f"""
+    <div class="metric-card">
+      <div class="metric-label">{label}</div>
+      <div class="metric-num {cls}">{num_str}</div>
+      <div class="metric-bar-bg">
+        <div class="metric-bar-fill" style="width:{bar_pct}%;background:{color};"></div>
+      </div>
+    </div>""", unsafe_allow_html=True)
 
 def score_bar(score: int, label: str = ""):
     color = score_color(score)
     st.markdown(f"""
-    <div>
+    <div style="margin-bottom:0.5rem;">
       <div style="display:flex;justify-content:space-between;margin-bottom:0.2rem;">
-        <span style="font-size:0.8rem;color:#8b949e;">{label}</span>
-        <span style="font-size:0.8rem;font-weight:600;color:{color};">{score}%</span>
+        <span style="font-size:0.82rem;color:var(--muted);">{label}</span>
+        <span style="font-size:0.82rem;font-weight:700;color:{color};">{score}%</span>
       </div>
       <div class="score-bar-bg">
         <div class="score-bar-fill" style="width:{score}%;background:{color};"></div>
       </div>
+    </div>""", unsafe_allow_html=True)
+
+def topbar(current_step: str):
+    steps  = ["search", "select_job", "analyze", "results"]
+    labels = ["Search", "Select job", "Analyze", "Results"]
+    cur_idx = steps.index(current_step) if current_step in steps else 0
+    pills_html = ""
+    for i, (s, lbl) in enumerate(zip(steps, labels)):
+        if i < cur_idx:      cls = "spill spill-done"
+        elif i == cur_idx:   cls = "spill spill-active"
+        else:                cls = "spill"
+        pills_html += f'<span class="{cls}">{lbl}</span>'
+        if i < len(steps) - 1:
+            pills_html += '<span class="spill-sep"></span>'
+    right_html = ""
+    if current_step == "results":
+        right_html = '<span style="font-size:0.75rem;background:#ECFDF5;color:#15803D;padding:4px 12px;border-radius:20px;border:1px solid #86EFAC;font-weight:600;">Analysis complete</span>'
+    elif current_step == "select_job":
+        right_html = f'<span style="font-size:0.78rem;color:var(--muted2);">{len(st.session_state.jobs)} jobs found</span>'
+    st.markdown(f"""
+    <div class="topbar">
+      <div class="topbar-logo"><div class="logo-dot"></div>JobOrbit AI</div>
+      <div class="step-pills">{pills_html}</div>
+      <div>{right_html}</div>
     </div>
+    <div style="margin-bottom:1.25rem;"></div>
     """, unsafe_allow_html=True)
 
-def step_indicator(current: str):
-    steps = [
-        ("search",     "1", "Search Jobs"),
-        ("select_job", "2", "Select Job"),
-        ("analyze",    "3", "Analyze"),
-    ]
-    order = [s[0] for s in steps]
-    cur_idx = order.index(current) if current in order else 0
-    # results maps to step 3's done state
-    if current == "results":
-        cur_idx = 3
-
-    html = '<div class="step-bar">'
-    for i, (key, num, label) in enumerate(steps):
-        step_idx = i
-        if step_idx < cur_idx:
-            dot_cls = "step-dot-done"
-            line_cls = "step-line-done"
-            icon = "✓"
-        elif step_idx == cur_idx:
-            dot_cls = "step-dot-active"
-            line_cls = "step-line"
-            icon = num
-        else:
-            dot_cls = "step-dot-inactive"
-            line_cls = "step-line"
-            icon = num
-
-        html += f'<div class="step-dot {dot_cls}">{icon}</div>'
-        html += f'<span style="font-size:0.8rem;color:{("#e6edf3" if step_idx <= cur_idx else "#8b949e")};">{label}</span>'
-        if i < len(steps) - 1:
-            html += f'<div class="step-line {line_cls}"></div>'
-
-    html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+def job_banner(job: dict):
+    url_btn    = f'<a class="apply-btn" href="{job["url"]}" target="_blank">Apply now →</a>' if job.get("url") else ""
+    loc_str    = f'<span class="tag tag-gray" style="font-size:0.72rem;">📍 {job.get("location","")}</span>' if job.get("location") else ""
+    sal        = job.get("salary_display", job.get("salary", ""))
+    salary_str = f'<span class="tag tag-green" style="font-size:0.72rem;">{sal}</span>' if sal else ""
+    st.markdown(f"""
+    <div class="job-banner">
+      <div>
+        <div class="eyebrow">Selected role</div>
+        <div class="job-banner-title">{job.get('title','')} — {job.get('company','')}</div>
+        <div style="margin-top:4px;">{loc_str} {salary_str}</div>
+      </div>
+      <div>{url_btn}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def set_analyze_step(job):
-    """Callback to set the selected job and advance step"""
     st.session_state.selected_job = job
     st.session_state.step = "analyze"
+    st.session_state.needs_enrichment = True
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 🤖 AI Job Search Agent")
-    st.markdown("---")
+# ══════════════════════════════════════════════════════════════════════════════
+# Country options
+# ══════════════════════════════════════════════════════════════════════════════
+_COUNTRY_OPTIONS = {
+    "us": "🇺🇸 United States", "gb": "🇬🇧 United Kingdom",
+    "ca": "🇨🇦 Canada",        "au": "🇦🇺 Australia",
+    "in": "🇮🇳 India",         "ae": "🇦🇪 UAE",
+    "de": "🇩🇪 Germany",       "fr": "🇫🇷 France",
+    "it": "🇮🇹 Italy",         "nl": "🇳🇱 Netherlands",
+    "pl": "🇵🇱 Poland",        "es": "🇪🇸 Spain",
+    "br": "🇧🇷 Brazil",        "mx": "🇲🇽 Mexico",
+    "za": "🇿🇦 South Africa",  "nz": "🇳🇿 New Zealand",
+    "sg": "🇸🇬 Singapore",     "sa": "🇸🇦 Saudi Arabia",
+    "at": "🇦🇹 Austria",       "be": "🇧🇪 Belgium",
+    "ch": "🇨🇭 Switzerland",
+}
 
-    # Gemini status indicator
-    gemini_ok = settings.HAS_GEMINI
 
-    status_color = "#56d364" if gemini_ok else "#f85149"
-    status_text  = "Connected" if gemini_ok else "Disconnected"
-    st.markdown(f"""
-    <div class="card" style="padding:0.75rem 1rem;">
-      <div style="font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;">Google Gemini</div>
-      <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;">
-        <span style="width:8px;height:8px;border-radius:50%;background:{status_color};display:inline-block;"></span>
-        <span style="font-size:0.85rem;font-weight:600;color:{status_color};">{status_text}</span>
-      </div>
-      <div style="font-size:0.7rem;color:#8b949e;margin-top:0.2rem;">gemini-2.5-flash-lite</div>
-    </div>
-    """, unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR (steps 2–4)
+# ══════════════════════════════════════════════════════════════════════════════
+search_clicked = False
+if st.session_state.step != "search":
+    with st.sidebar:
+        st.markdown("## 🔍 Filters")
+        st.markdown('<hr style="margin:0.4rem 0 1rem;">', unsafe_allow_html=True)
 
-    st.markdown("### 🔍 Search Parameters")
-    job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,  placeholder="e.g. Data Scientist")
-    location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. Mumbai, London, Remote  (city or 'Remote' — leave blank for all)")
-    
-    # Country selection
-    country_options = {
-        "us": "🇺🇸 United States",
-        "gb": "🇬🇧 United Kingdom",
-        "ca": "🇨🇦 Canada",
-        "au": "🇦🇺 Australia",
-        "in": "🇮🇳 India",
-        "ae": "🇦🇪 United Arab Emirates",
-        "de": "🇩🇪 Germany",
-        "fr": "🇫🇷 France",
-        "it": "🇮🇹 Italy",
-        "nl": "🇳🇱 Netherlands",
-        "pl": "🇵🇱 Poland",
-        "es": "🇪🇸 Spain",
-        "br": "🇧🇷 Brazil",
-        "mx": "🇲🇽 Mexico",
-        "za": "🇿🇦 South Africa",
-        "nz": "🇳🇿 New Zealand",
-        "sg": "🇸🇬 Singapore",
-        "sa": "🇸🇦 Saudi Arabia",
-        "at": "🇦🇹 Austria",
-        "be": "🇧🇪 Belgium",
-        "ch": "🇨🇭 Switzerland",
-    }
-    country_code = st.selectbox(
-        "Country", 
-        options=list(country_options.keys()),
-        format_func=lambda x: country_options[x],
-        index=0
-    )
-    
-    experience_input = st.selectbox("Experience Level", [
-        "0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"
-    ], index=["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"].index(st.session_state.experience))
+        job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,  placeholder="e.g. Data Scientist")
+        location_input   = st.text_input("Location",   value=st.session_state.location,   placeholder="e.g. London, Remote")
+        _c_options = list(_COUNTRY_OPTIONS.keys())
+        _c_idx = _c_options.index(st.session_state.get("country", "us")) if st.session_state.get("country", "us") in _c_options else 0
+        country_code     = st.selectbox("Country", options=_c_options,
+                                        format_func=lambda x: _COUNTRY_OPTIONS[x], index=_c_idx)
+        experience_input = st.selectbox("Experience Level",
+                                        ["0-1 years","1-3 years","3-5 years","5-10 years","10+ years"],
+                                        index=["0-1 years","1-3 years","3-5 years","5-10 years","10+ years"].index(st.session_state.experience))
 
-    search_clicked = st.button("🔍 Find Jobs", type="primary", use_container_width=True,
-                               disabled=st.session_state.searching)
+        search_clicked = st.button("Search Again", type="primary", use_container_width=True,
+                                   disabled=st.session_state.searching)
 
-    if st.session_state.step != "search":
-        if st.button("🔄 New Search", use_container_width=True):
+        if st.button("New Search", use_container_width=True):
             st.session_state.step = "search"
             st.session_state.jobs = []
             st.session_state.selected_job = None
@@ -298,50 +388,35 @@ with st.sidebar:
             st.session_state.error = None
             st.rerun()
 
-    st.markdown("---")
+        st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
 
-    # Progress legend
-    step_labels = {
-        "search":     ("🔍 Searching jobs...",     "#1f6feb"),
-        "select_job": ("💼 Pick a job",            "#d29922"),
-        "analyze":    ("📄 Upload resume",         "#d29922"),
-        "results":    ("✅ Analysis complete",     "#238636"),
-    }
-    label, color = step_labels.get(st.session_state.step, ("Ready", "#8b949e"))
-    st.markdown(f"""
-    <div style="font-size:0.85rem;font-weight:600;color:{color};padding:0.5rem 0;">
-      {label}
-    </div>
-    """, unsafe_allow_html=True)
+        status_map = {
+            "select_job": ("Pick a job to analyse", "#16A34A"),
+            "analyze":    ("Upload your resume",    "#D97706"),
+            "results":    ("Analysis complete ✓",   "#16A34A"),
+        }
+        lbl, clr = status_map.get(st.session_state.step, ("Ready", "#7BA88C"))
+        st.markdown(f'<div style="font-size:0.85rem;font-weight:600;color:{clr};padding:0.25rem 0;">{lbl}</div>', unsafe_allow_html=True)
 
-    if st.session_state.selected_job:
-        job = st.session_state.selected_job
-        st.markdown(f"""
-        <div class="card" style="padding:0.75rem 1rem;">
-          <div style="font-size:0.7rem;color:#8b949e;text-transform:uppercase;">Selected Job</div>
-          <div style="font-size:0.85rem;font-weight:600;color:#e6edf3;margin-top:0.25rem;">{job.get('title','')}</div>
-          <div style="font-size:0.75rem;color:#8b949e;">{job.get('company','')}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        if st.session_state.selected_job:
+            j = st.session_state.selected_job
+            st.markdown(f"""
+            <div class="card" style="padding:0.7rem 1rem;margin-top:0.75rem;">
+              <div class="eyebrow">Selected job</div>
+              <div style="font-size:0.87rem;font-weight:700;color:var(--text);margin-top:3px;">{j.get('title','')}</div>
+              <div style="font-size:0.78rem;color:var(--muted);">{j.get('company','')}</div>
+            </div>""", unsafe_allow_html=True)
 
-    st.markdown("""
-    <div style="font-size:0.7rem;color:#8b949e;text-align:center;margin-top:1rem;">
-      Step 1: Adzuna + RapidAPI (Google Jobs)<br>
-      Step 2: You pick the best fit<br>
-      Step 3: Gemini analyzes your resume<br>
-      <span style="color:#1f6feb;">Powered by Google Gemini + Adzuna + RapidAPI</span>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.7rem;color:var(--muted2);text-align:center;margin-top:1.5rem;">Powered by AI</div>', unsafe_allow_html=True)
+else:
+    job_title_input  = st.session_state.job_title
+    location_input   = st.session_state.location
+    country_code     = st.session_state.get("country", "us")
+    experience_input = st.session_state.experience
 
-
-# ── Main area ─────────────────────────────────────────────────────────────────
-st.markdown("# 🤖 AI Job Search Agent")
-st.markdown("<p style='color:#8b949e;margin-top:-0.5rem;'>Search real jobs · Pick your match · Get AI-powered ATS analysis & cover letter</p>", unsafe_allow_html=True)
-
-step_indicator(st.session_state.step)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1: Search triggered from sidebar
+# SEARCH TRIGGER
 # ══════════════════════════════════════════════════════════════════════════════
 if search_clicked:
     st.session_state.job_title  = job_title_input
@@ -357,815 +432,648 @@ if search_clicked:
     st.session_state.error = None
     st.session_state.step = "search"
     st.session_state.searching = True
-    # We do NOT rerun here - let it fall through to the block below
 
-    if st.session_state.searching:
-        st.session_state.searching = False
-        with st.spinner(f"🔍 Searching Adzuna & RapidAPI for **{st.session_state.job_title}** positions..."):
-            try:
-                from utils.adzuna_client import search_adzuna
-                from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
-                import concurrent.futures
-                
-                all_jobs = []
-                
-                # Run both searches concurrently to save time
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                    f_adzuna = executor.submit(
-                        search_adzuna,
-                        job_title=st.session_state.job_title,
-                        location=st.session_state.location,
-                        max_results=15, # Distribute the load
-                        country=st.session_state.get('country', 'us'),
-                        experience=st.session_state.experience
-                    )
-                    
-                    f_jsearch = executor.submit(
-                        search_jsearch,
-                        job_title=st.session_state.job_title,
-                        location=st.session_state.location,
-                        max_results=15,
-                        experience=st.session_state.experience,
-                        country=st.session_state.get('country', 'us')
-                    )
-                    
-                    try:
-                        adzuna_jobs = f_adzuna.result()
-                        all_jobs.extend(adzuna_jobs)
-                    except Exception as e:
-                        print(f"Adzuna fetch failed: {e}")
-                        
-                    try:
-                        jsearch_jobs = f_jsearch.result()
-                        all_jobs.extend(jsearch_jobs)
-                    except Exception as e:
-                        print(f"JSearch fetch failed: {e}")
+if st.session_state.searching:
+    st.session_state.searching = False
+    _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
+    with st.status("Searching for jobs...", expanded=True) as status:
+        if _lottie_search:
+            st_lottie(_lottie_search, height=120, key="search_anim")
+        status.update(label="Scanning job boards...", state="running")
+        try:
+            from utils.adzuna_client import search_adzuna
+            from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
+            import concurrent.futures
+            all_jobs = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                f_adzuna  = executor.submit(search_adzuna,  job_title=st.session_state.job_title, location=st.session_state.location, max_results=35, country=st.session_state.get("country","us"), experience=st.session_state.experience)
+                f_jsearch = executor.submit(search_jsearch, job_title=st.session_state.job_title, location=st.session_state.location, max_results=35, experience=st.session_state.experience, country=st.session_state.get("country","us"))
+                for f in [f_adzuna, f_jsearch]:
+                    try: all_jobs.extend(f.result())
+                    except Exception as e: print(f"Fetch failed: {e}")
 
-                # Deduplicate by URL or exact title+company match
-                seen_urls = set()
-                seen_combos = set()
-                unique_jobs = []
-                
-                for job in all_jobs:
-                    url = job.get('url', '')
-                    combo = f"{job.get('title', '').lower()}|{job.get('company', '').lower()}"
-                    
-                    if url and url in seen_urls:
-                        continue
-                    if combo in seen_combos:
-                        continue
-                        
-                    seen_urls.add(url)
-                    seen_combos.add(combo)
-                    unique_jobs.append(job)
-
-                # Sort by date (newest first). Both APIs provide ISO-ish strings that sort alphabetically well enough.
-                # If 'posted_date' is missing, fallback to empty string (which drops to bottom when reversed).
-                unique_jobs.sort(key=lambda x: str(x.get('posted_date', '')), reverse=True)
-
-                st.session_state.jobs = unique_jobs
-                st.session_state.step = "select_job"
-                if not unique_jobs:
-                    st.session_state.error = "No jobs found. Try a broader title or different location."
-            except Exception as e:
-                st.session_state.error = f"Job search failed: {e}"
-                st.session_state.step = "search"
-
-        # Enrich JSearch jobs with full descriptions (separate spinner)
-        if st.session_state.jobs and st.session_state.step == "select_job":
-            # Count how many JSearch jobs need enrichment
-            needs_enrichment = [
-                j for j in st.session_state.jobs
-                if "JSearch" in j.get("source", "") and len(j.get("description", "").strip()) < 100
-            ]
-            if needs_enrichment:
-                with st.spinner(f"📄 Fetching full descriptions for {len(needs_enrichment)} job(s)..."):
-                    try:
-                        enrich_jsearch_jobs(st.session_state.jobs)
-                    except Exception as e:
-                        print(f"Enrichment failed (non-fatal): {e}")
-        # Search done — results stored in session state, fall through to render below
+            status.update(label=f"Found {len(all_jobs)} listings — deduplicating...", state="running")
+            seen_urls, seen_combos, unique_jobs = set(), set(), []
+            for job in all_jobs:
+                url   = job.get("url","")
+                combo = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
+                if (url and url in seen_urls) or combo in seen_combos:
+                    continue
+                seen_urls.add(url); seen_combos.add(combo); unique_jobs.append(job)
+            unique_jobs.sort(key=lambda x: str(x.get("posted_date","")), reverse=True)
+            st.session_state.jobs = unique_jobs
+            st.session_state.step = "select_job"
+            if not unique_jobs:
+                st.session_state.error = "No jobs found. Try a broader title or different location."
+            status.update(label=f"✓ Found {len(unique_jobs)} unique listings", state="complete")
+        except Exception as e:
+            st.session_state.error = f"Job search failed: {e}"
+            st.session_state.step = "search"
+            status.update(label="Search failed", state="error")
+    
+    # Enrichment happens on-demand when a job is selected.
+    st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2: Show job listings — user selects one
+# SCREEN 1 — Hero Search
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.step == "search" and not st.session_state.error:
+    topbar("search")
+
+    st.markdown("""
+    <div class="hero-wrap">
+      <div class="hero-badge">AI-powered career assistant</div>
+      <div class="hero-h1">Land your <em>dream job</em><br>with AI on your side</div>
+      <div class="hero-sub">
+        Search real listings across job boards, then let AI score your resume,
+        close the keyword gaps, and write a cover letter that gets you noticed.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    _, col_c, _ = st.columns([0.15, 5, 0.15])
+    with col_c:
+        _hero_title = st.text_input("What role are you looking for?",
+                                    value=st.session_state.job_title,
+                                    placeholder="e.g. Data Scientist, Product Manager")
+        _c1, _c2, _c3 = st.columns([1, 1, 0.75])
+        with _c1:
+            _hero_location = st.text_input("Location", value=st.session_state.location, placeholder="e.g. London, Remote")
+        with _c2:
+            _c_options = list(_COUNTRY_OPTIONS.keys())
+            _c_idx = _c_options.index(st.session_state.get("country", "us")) if st.session_state.get("country", "us") in _c_options else 0
+            _hero_country  = st.selectbox("Country", options=_c_options,
+                                          format_func=lambda x: _COUNTRY_OPTIONS[x], index=_c_idx, key="hero_country")
+        with _c3:
+            _exp_opts = ["0-1 yrs", "1-3 yrs", "3-5 yrs", "5-10 yrs", "10+ yrs"]
+            _exp_rev = {"0-1 years":"0-1 yrs", "1-3 years":"1-3 yrs", "3-5 years":"3-5 yrs", "5-10 years":"5-10 yrs", "10+ years":"10+ yrs"}
+            _curr_exp = _exp_rev.get(st.session_state.experience, "3-5 yrs")
+            _exp_idx = _exp_opts.index(_curr_exp) if _curr_exp in _exp_opts else 2
+            _hero_exp = st.selectbox("Experience", _exp_opts, index=_exp_idx, key="hero_exp")
+
+        if st.button("Search Jobs", type="primary", use_container_width=True, key="hero_search_btn"):
+            exp_map = {"0-1 yrs":"0-1 years","1-3 yrs":"1-3 years","3-5 yrs":"3-5 years","5-10 yrs":"5-10 years","10+ yrs":"10+ years"}
+            st.session_state.job_title  = _hero_title
+            st.session_state.location   = _hero_location
+            st.session_state.country    = _hero_country
+            st.session_state.experience = exp_map.get(_hero_exp, "3-5 years")
+            st.session_state.jobs = []
+            st.session_state.selected_job = None
+            st.session_state.analysis = None
+            st.session_state.cover_letter = ""
+            st.session_state.tailored_resume = ""
+            st.session_state.tailored_ats = None
+            st.session_state.error = None
+            st.session_state.step = "search"
+            st.session_state.searching = True
+            st.rerun()
+
+    _, col_hiw, _ = st.columns([0.15, 5, 0.15])
+    with col_hiw:
+        st.markdown("""
+        <div class="hiw-grid">
+          <div class="hiw-card">
+            <div class="hiw-num">01 — Search</div>
+            <div class="hiw-title">Real listings, live</div>
+            <div class="hiw-desc">We scan Adzuna &amp; JSearch simultaneously for up-to-date jobs.</div>
+          </div>
+          <div class="hiw-card">
+            <div class="hiw-num">02 — Select</div>
+            <div class="hiw-title">Pick your match</div>
+            <div class="hiw-desc">Your resume is analysed against that specific job description.</div>
+          </div>
+          <div class="hiw-card">
+            <div class="hiw-num">03 — Analyse</div>
+            <div class="hiw-title">AI does the work</div>
+            <div class="hiw-desc">ATS score, keyword gaps, tailored resume &amp; cover letter.</div>
+          </div>
+        </div>
+        <div style="text-align:center;margin-top:2rem;font-size:0.72rem;color:var(--muted2);letter-spacing:0.08em;text-transform:uppercase;">✦ Powered by AI ✦</div>
+        """, unsafe_allow_html=True)
+
+elif st.session_state.step == "search" and st.session_state.error:
+    topbar("search")
+    st.error(f"❌ {st.session_state.error}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCREEN 2 — Job Listings
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.step == "select_job":
+    topbar("select_job")
     jobs = st.session_state.jobs
 
     if st.session_state.error:
         st.error(f"❌ {st.session_state.error}")
     elif not jobs:
-        st.warning("⚠️ No jobs were returned. Try a broader title or different location.")
+        st.warning("⚠️ No jobs found. Try a broader title or different location.")
     else:
-        st.markdown(f"### 💼 Found {len(jobs)} Jobs — Click one to analyze it")
+        hcol1, _ = st.columns([3, 1])
+        with hcol1:
+            st.markdown(f"""
+            <div style="margin-bottom:0.75rem;">
+              <div style="font-size:1.05rem;font-weight:800;color:var(--text);">{len(jobs)} listings found</div>
+              <div style="font-size:0.82rem;color:var(--muted);margin-top:2px;">Select a role — your resume will be matched to that exact job description.</div>
+            </div>""", unsafe_allow_html=True)
 
-    st.markdown("<p style='color:#8b949e;font-size:0.9rem;margin-top:-0.5rem;'>Select the job that interests you most. Your resume will be analyzed against that specific role.</p>", unsafe_allow_html=True)
+        for i, job in enumerate(jobs):
+            company     = job.get("company", "Unknown Company")
+            title       = job.get("title", "Unknown Title")
+            loc         = job.get("location", "")
+            salary      = job.get("salary_display", job.get("salary", ""))
+            description = job.get("description", "")
+            url         = job.get("url", "")
+            posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
+            contract    = job.get("contract_type", "")
+            source      = job.get("source", "")
 
-    for i, job in enumerate(jobs):
-        company     = job.get("company", "Unknown Company")
-        title       = job.get("title", "Unknown Title")
-        loc         = job.get("location", "")
-        salary      = job.get("salary_display", job.get("salary", ""))
-        description = job.get("description", "")
-        url         = job.get("url", "")
-        posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
-        contract    = job.get("contract_type", "")
-        source      = job.get("source", "Unknown")
+            tags_html = ""
+            if salary:   tags_html += f'<span class="tag tag-green">{salary}</span>'
+            if contract: tags_html += f'<span class="tag tag-yellow">{contract}</span>'
+            if source:   tags_html += f'<span class="tag tag-source">{source}</span>'
+            if posted:   tags_html += f'<span style="font-size:0.72rem;color:var(--muted2);margin-left:4px;">Posted {posted}</span>'
 
-        source_color = "#1f3a5f" if "JSearch" in source else "#1a3a2a" if "Adzuna" in source else "#3a3a3a"
-        tag_color = "#79c0ff" if "JSearch" in source else "#56d364" if "Adzuna" in source else "#e6edf3"
-        source_html = f'<span style="background:{source_color};color:{tag_color};padding:0.15rem 0.5rem;border-radius:4px;font-size:0.7rem;border:1px solid {tag_color};">{source}</span>'
+            url_html = f'<a href="{url}" target="_blank" style="font-size:0.78rem;color:var(--green2);text-decoration:none;font-weight:600;">View listing →</a>' if url else ""
 
-        salary_html   = f'<span class="tag tag-green">{salary}</span>' if salary else ""
-        contract_html = f'<span class="tag tag-yellow">{contract}</span>' if contract else ""
-        posted_html   = f'<span style="font-size:0.75rem;color:#8b949e;">Posted: {posted}</span>' if posted else ""
-        url_html      = f'<a href="{url}" target="_blank" style="color:#79c0ff;font-size:0.8rem;text-decoration:none;">View listing →</a>' if url else ""
-        
-        desc_short    = (description[:280] + "…") if len(description) > 280 else description
+            desc_html = ""
+            if description:
+                clean = description.replace("\n\n","\n").replace("\n"," ").strip()
+                if len(clean) > 260: clean = clean[:260] + "…"
+                desc_html = f'<div style="font-size:0.84rem;color:var(--muted);margin-top:0.6rem;line-height:1.55;">{clean}</div>'
 
-        # Prepare description HTML safely
-        desc_html = ""
-        if description:
-            # Clean up and truncate
-            if job.get("is_highlights_only"):
-                # For highlights fallback, preserve line breaks
-                clean_desc = description.replace("\n", "<br>")
-            else:
-                clean_desc = description.replace("\n\n", "\n").replace("\n", " ").strip()
-                if len(clean_desc) > 300:
-                    clean_desc = clean_desc[:300] + "..."
-            
-            # Using triple double quotes for the inner HTML to avoid escaping issues with single quotes
-            desc_html = f"""<div style="font-size:0.82rem;color:#8b949e;margin-top:0.75rem;line-height:1.5;">{clean_desc}</div>"""
-
-        # Render the card
-        st.markdown(f"""
-        <div class="job-card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
-            <div>
-              <div style="font-size:1rem;font-weight:600;color:#e6edf3;">{i+1}. {title}</div>
-              <div style="font-size:0.85rem;color:#8b949e;margin-top:0.15rem;">🏢 {company} &nbsp;·&nbsp; 📍 {loc}</div>
-              <div style="margin-top:0.3rem;">{source_html}</div>
+            st.markdown(f"""
+            <div class="job-card">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;flex-wrap:wrap;">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:0.97rem;font-weight:700;color:var(--text);">{title}</div>
+                  <div style="font-size:0.82rem;color:var(--muted);margin-top:2px;">🏢 {company} &nbsp;·&nbsp; 📍 {loc}</div>
+                </div>
+                <div style="flex-shrink:0;">{url_html}</div>
+              </div>
+              <div style="margin-top:0.5rem;">{tags_html}</div>
+              {desc_html}
             </div>
-            <div style="text-align:right;">
-              {salary_html}{contract_html}
-              <div style="margin-top:0.3rem;">{url_html}</div>
-            </div>
-          </div>
-          {desc_html}
-          <div style="margin-top:0.5rem;">{posted_html}</div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-        st.button(
-            f"✅ Analyze This Job",
-            key=f"select_{i}",
-            on_click=set_analyze_step,
-            args=(job,)
-        )
+            st.button("Analyse this job →", key=f"select_{i}", type="primary",
+                      on_click=set_analyze_step, args=(job,))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3: Resume input + trigger Gemini analysis
+# SCREEN 3 — Resume Upload & Options
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.step == "analyze":
-    job = st.session_state.selected_job
+    topbar("analyze")
+    jb = st.session_state.selected_job
+    job_banner(jb)
 
-    # Show selected job summary
-    st.markdown(f"""
-    <div class="card card-green" style="padding:1rem 1.25rem;margin-bottom:1.25rem;">
-      <div style="font-size:0.7rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;">Selected Job</div>
-      <div style="font-size:1.05rem;font-weight:600;color:#e6edf3;margin-top:0.2rem;">{job.get('title','')}</div>
-      <div style="font-size:0.85rem;color:#8b949e;">{job.get('company','')} &nbsp;·&nbsp; {job.get('location','')}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # ── On-demand enrichment for JSearch jobs ──
+    if st.session_state.get("needs_enrichment") and "JSearch" in jb.get("source", ""):
+        if len(jb.get("description", "").strip()) < 100:
+            with st.spinner("📄 Fetching full job details..."):
+                from utils.rapidapi_client import fetch_job_details
+                full_desc = fetch_job_details(jb.get("id"), os.getenv("RAPIDAPI_KEY"))
+                if full_desc:
+                    jb["description"] = full_desc[:5000]
+                    jb["is_highlights_only"] = False
+                    st.session_state.selected_job = jb
+        st.session_state.needs_enrichment = False
+        st.rerun()
 
-    st.markdown("### 📄 Your Resume")
-    upload_tab, paste_tab = st.tabs(["📎 Upload File", "📝 Paste Text"])
-    
+    st.markdown('<div style="font-size:0.9rem;font-weight:700;color:var(--text);margin-bottom:0.75rem;">Your resume</div>', unsafe_allow_html=True)
+    upload_tab, paste_tab = st.tabs(["Upload file", "Paste text"])
+
     with upload_tab:
         uploaded_file = st.file_uploader(
-            "Upload your resume (PDF, DOCX, or TXT)",
-            type=["pdf", "docx", "txt"],
-            key="resume_file",
+            "Drop your resume here — PDF, DOCX or TXT",
+            type=["pdf","docx","txt"], key="resume_file",
         )
         if uploaded_file:
             from utils.resume_parser import parse_resume_file
             parsed = parse_resume_file(uploaded_file)
             st.session_state.parsed_file = parsed
             st.session_state.file_checks = parsed.get("file_checks")
-            
-            file_text = parsed.get("text", "")
-            file_type = parsed.get("file_type", "unknown")
-            file_checks = parsed.get("file_checks", {})
-            
-            # Show file info
+            file_text   = parsed.get("text","")
+            file_type   = parsed.get("file_type","unknown")
+            file_checks = parsed.get("file_checks",{})
             st.markdown(f"""
-            <div class="card" style="padding:0.75rem 1rem;margin-top:0.5rem;">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                  <span class="tag tag-green">✅ {uploaded_file.name}</span>
-                  <span class="tag tag-blue">{file_type.upper()}</span>
-                  <span style="font-size:0.8rem;color:#8b949e;margin-left:0.5rem;">{len(file_text.split())} words extracted</span>
-                </div>
-                {f'<span class="tag tag-blue">{file_checks.get("page_count", "?")} page(s)</span>' if file_checks.get("page_count") else ''}
+            <div class="card" style="padding:0.65rem 1rem;margin-top:0.5rem;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span class="tag tag-green">✓ {uploaded_file.name}</span>
+                <span class="tag tag-blue">{file_type.upper()}</span>
+                <span style="font-size:0.78rem;color:var(--muted);">{len(file_text.split())} words extracted</span>
+                {f'<span class="tag tag-gray">{file_checks.get("page_count","?")} page(s)</span>' if file_checks.get("page_count") else ""}
               </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Show file-structure warnings
+            </div>""", unsafe_allow_html=True)
             if file_checks.get("issues"):
                 for issue in file_checks["issues"]:
-                    st.markdown(f"""
-                    <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.3rem;">
-                      <span style="color:#d29922;flex-shrink:0;">⚠</span>
-                      <span style="color:#e6edf3;font-size:0.85rem;">{issue}</span>
-                    </div>""", unsafe_allow_html=True)
-            
-            # Show extracted text preview
+                    st.markdown(f'<div class="row-item row-item-amber" style="margin-top:0.3rem;"><span style="color:var(--amber);flex-shrink:0;">⚠</span><span style="color:var(--text);">{issue}</span></div>', unsafe_allow_html=True)
             with st.expander("Preview extracted text", expanded=False):
                 st.text(file_text[:2000] + ("..." if len(file_text) > 2000 else ""))
         else:
             st.session_state.parsed_file = None
             st.session_state.file_checks = None
-    
+
     with paste_tab:
         resume = st.text_area(
-            label="Resume text",
-            height=280,
-            placeholder="Paste your full resume text here...",
-            label_visibility="collapsed",
-            key="resume_text",
+            label="Resume text", height=260,
+            placeholder="Paste your full resume text here…",
+            label_visibility="collapsed", key="resume_text",
         )
 
-    st.markdown("#### 🛠️ Analysis Options")
-    col_opt1, col_opt2, col_opt3 = st.columns(3)
-    with col_opt1:
-        st.session_state.analyze_ats = st.checkbox("📊 ATS Score & Feedback", value=st.session_state.get("analyze_ats", True))
-    with col_opt2:
-        st.session_state.analyze_cover = st.checkbox("✍️ Generate Cover Letter", value=st.session_state.get("analyze_cover", True))
-    with col_opt3:
-        st.session_state.analyze_tailor = st.checkbox("✨ Auto-Revise Resume", value=st.session_state.get("analyze_tailor", False))
+    # AI options
+    st.markdown('<div style="font-size:0.9rem;font-weight:700;color:var(--text);margin:1.1rem 0 0.6rem;">What should AI do?</div>', unsafe_allow_html=True)
+    oc1, oc2, oc3 = st.columns(3)
+    with oc1:
+        st.session_state.analyze_ats   = st.checkbox("Resume Score & Feedback",  value=st.session_state.get("analyze_ats",    True))
+        ats_cls = "opt-card" + (" opt-card-checked" if st.session_state.analyze_ats else "")
+        st.markdown(f'<div class="{ats_cls}" style="border:1px solid {"#86EFAC" if st.session_state.analyze_ats else "var(--border)"};border-radius:var(--r);padding:0.75rem;margin-top:-0.4rem;background:{"var(--greenlt)" if st.session_state.analyze_ats else "var(--surface)"}"><div style="font-size:0.82rem;color:var(--muted);line-height:1.5;">ATS score, keyword gaps, sub-scores and actionable suggestions.</div></div>', unsafe_allow_html=True)
+    with oc2:
+        st.session_state.analyze_cover = st.checkbox("Generate Cover Letter",     value=st.session_state.get("analyze_cover",  True))
+        cov_cls = "opt-card" + (" opt-card-checked" if st.session_state.analyze_cover else "")
+        st.markdown(f'<div class="{cov_cls}" style="border:1px solid {"#86EFAC" if st.session_state.analyze_cover else "var(--border)"};border-radius:var(--r);padding:0.75rem;margin-top:-0.4rem;background:{"var(--greenlt)" if st.session_state.analyze_cover else "var(--surface)"}"><div style="font-size:0.82rem;color:var(--muted);line-height:1.5;">A tailored cover letter written for this exact role and company.</div></div>', unsafe_allow_html=True)
+    with oc3:
+        st.session_state.analyze_tailor = st.checkbox("Auto-Revise Resume",       value=st.session_state.get("analyze_tailor", False))
+        tail_cls = "opt-card" + (" opt-card-checked" if st.session_state.analyze_tailor else "")
+        st.markdown(f'<div class="{tail_cls}" style="border:1px solid {"#86EFAC" if st.session_state.analyze_tailor else "var(--border)"};border-radius:var(--r);padding:0.75rem;margin-top:-0.4rem;background:{"var(--greenlt)" if st.session_state.analyze_tailor else "var(--surface)"}"><div style="font-size:0.82rem;color:var(--muted);line-height:1.5;">Rewrite your resume to boost ATS score for this specific listing.</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    col_btn, col_back = st.columns([2, 6])
-    with col_btn:
-        analyze_btn = st.button("🚀 Run Selected Analysis", type="primary",
-                                use_container_width=True,
-                                disabled=st.session_state.analyzing)
-    with col_back:
-        if st.button("← Back to Jobs"):
+    btn_col, back_col, _ = st.columns([2, 1, 4])
+    with btn_col:
+        analyze_btn = st.button("Analyse my resume →", type="primary",
+                                use_container_width=True, disabled=st.session_state.analyzing)
+    with back_col:
+        if st.button("← Back to jobs"):
             st.session_state.step = "select_job"
             st.session_state.selected_job = None
             st.session_state.analyzing = False
             st.rerun()
 
     if analyze_btn:
-        # Get resume text from upload or paste
-        uploaded_text = ""
-        if st.session_state.get("parsed_file"):
-            uploaded_text = st.session_state.parsed_file.get("text", "")
-        pasted_text = resume if 'resume' in dir() else ""
-        final_resume = uploaded_text or pasted_text
-        file_checks = st.session_state.get("file_checks")
-        
+        uploaded_text = (st.session_state.get("parsed_file") or {}).get("text","")
+        pasted_text   = resume if "resume" in dir() else ""
+        final_resume  = uploaded_text or pasted_text
+        file_checks   = st.session_state.get("file_checks")
+
         if not final_resume.strip():
-            st.error("⚠️ Please upload a resume file or paste your resume text before running analysis.")
+            st.error("Please upload a resume file or paste your resume text before running analysis.")
         else:
-            # Save resume independently of widget — widget keys are cleared when
-            # the widget is no longer rendered (e.g. on step change to 'results')
             st.session_state.saved_resume_text = final_resume
             st.session_state.analyzing = True
-            with st.spinner("🔍 Running ATS Scan + AI Analysis..."):
+            _lottie_analyze = _load_lottie_url(LOTTIE_ANALYZE_URL)
+            with st.status("Analysing your resume...", expanded=True) as status:
+                if _lottie_analyze:
+                    st_lottie(_lottie_analyze, height=120, key="analyze_anim")
                 try:
                     from utils.gemini_ats import GeminiATSScorer
                     from tools.gemini_tools import GeminiCoverLetterTool
+                    job_desc      = jb.get("description","")
+                    job_title_val = jb.get("title", st.session_state.job_title)
 
-                    job_desc = job.get("description", "")
-                    job_title_val = job.get("title", st.session_state.job_title)
-                    
                     st.session_state.analysis = None
                     st.session_state.cover_letter = ""
                     st.session_state.tailored_resume = ""
                     st.session_state.tailored_ats = None
 
-                    # Call 1: ATS analysis
                     if st.session_state.analyze_ats:
+                        status.update(label="Scoring your resume…", state="running")
                         scorer = GeminiATSScorer()
-                        analysis = scorer.analyze_resume(
-                            resume_text=final_resume,
-                            job_title=job_title_val,
-                            job_description=job_desc,
-                            file_checks=file_checks,
-                        )
-                        st.session_state.analysis = analysis
+                        st.session_state.analysis = scorer.analyze_resume(
+                            resume_text=final_resume, job_title=job_title_val,
+                            job_description=job_desc, file_checks=file_checks)
+                        status.update(label="Resume scored ✓", state="running")
 
-                    # Call 2: Cover letter
                     if st.session_state.analyze_cover:
+                        status.update(label="Writing your cover letter…", state="running")
                         cover_tool = GeminiCoverLetterTool()
-                        cover_raw = cover_tool._run(
-                            job_info=json.dumps({
-                                "title": job_title_val,
-                                "company": job.get("company", ""),
-                                "description": job_desc,
-                            }),
+                        cover_raw  = cover_tool._run(
+                            job_info=json.dumps({"title":job_title_val,"company":jb.get("company",""),"description":job_desc}),
                             resume_text=final_resume,
-                            ats_analysis=json.dumps(st.session_state.get("analysis", {}))
+                            ats_analysis=json.dumps(st.session_state.get("analysis",{}))
                         )
-                        try:
-                            cover_data = json.loads(cover_raw)
-                            st.session_state.cover_letter = cover_data.get("cover_letter", cover_raw)
-                        except Exception:
-                            st.session_state.cover_letter = cover_raw
-                            
-                    # Call 3: Tailor Resume (guided by ATS scan findings)
+                        try:    st.session_state.cover_letter = json.loads(cover_raw).get("cover_letter", cover_raw)
+                        except: st.session_state.cover_letter = cover_raw
+
                     if st.session_state.analyze_tailor:
+                        status.update(label="Rewriting your resume…", state="running")
                         from tools.gemini_resume_builder import GeminiResumeBuilder
                         from utils.ats_scanner import ATSScanner
                         builder = GeminiResumeBuilder()
                         st.session_state.tailored_resume = builder.build_resume(
                             resume_text=final_resume,
-                            job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc},
+                            job_info={"title":job_title_val,"company":jb.get("company",""),"description":job_desc},
                             ats_results=st.session_state.get("analysis"),
                         )
-                        # Re-score tailored resume with deterministic scanner only (no extra Gemini call)
                         if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
                             det_scanner = ATSScanner()
                             st.session_state.tailored_ats = det_scanner.scan(
                                 resume_text=st.session_state.tailored_resume,
-                                job_description=job_desc,
-                                job_title=job_title_val,
+                                job_description=job_desc, job_title=job_title_val,
                             )
 
-                    st.session_state.step = "results"
+                    st.session_state.step  = "results"
                     st.session_state.error = None
+                    status.update(label="Analysis complete ✓", state="complete")
 
                 except Exception as e:
                     st.session_state.error = str(e)
-                    st.session_state.step = "results"
+                    st.session_state.step  = "results"
+                    status.update(label="Analysis failed", state="error")
                 finally:
                     st.session_state.analyzing = False
-
             st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4: Results — ATS score + cover letter tabs
+# SCREEN 4 — Results
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.step == "results":
-    analysis = st.session_state.analysis or {}
+    topbar("results")
+    analysis     = st.session_state.analysis or {}
     cover_letter = st.session_state.cover_letter or ""
-    job = st.session_state.selected_job or {}
+    job          = st.session_state.selected_job or {}
 
     if st.session_state.error:
-        st.error(f"❌ Analysis failed: {st.session_state.error}")
+        st.error(f"Analysis failed: {st.session_state.error}")
         if st.button("← Try Again"):
-            st.session_state.step = "analyze"
+            st.session_state.step  = "analyze"
             st.session_state.error = None
             st.rerun()
     else:
-        st.success("✅ Analysis complete!")
-
-        # Selected job banner
-        st.markdown(f"""
-        <div class="card card-green" style="padding:0.75rem 1.25rem;margin-bottom:1rem;">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-            <div>
-              <span style="font-size:0.7rem;color:#8b949e;text-transform:uppercase;">Analyzed for</span>
-              <div style="font-size:0.95rem;font-weight:600;color:#e6edf3;">{job.get('title','')} @ {job.get('company','')}</div>
-            </div>
-            <div style="display:flex;gap:0.5rem;">
-              {f'<a href="{job["url"]}" target="_blank" style="background:#1f6feb;color:white;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;text-decoration:none;">Apply →</a>' if job.get("url") else ""}
-              <span style="background:#21262d;color:#8b949e;padding:0.3rem 0.8rem;border-radius:6px;font-size:0.8rem;">📍 {job.get('location','')}</span>
-            </div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        tab1, tab2, tab3 = st.tabs(["📊 ATS Analysis", "✍️ Cover Letter", "✨ Tailored Resume"])
+        job_banner(job)
+        tab1, tab2, tab3 = st.tabs(["Resume Analysis", "Cover Letter", "Tailored Resume"])
 
         # ── TAB 1: ATS Analysis ───────────────────────────────────────────────
         with tab1:
             if not analysis and not st.session_state.analyze_ats:
-                st.info("ATS Analysis was not requested for this job.")
+                st.info("ATS analysis was not requested for this job.")
             elif not analysis:
-                st.warning("⚠️ No analysis returned.")
+                st.warning("No analysis data returned.")
             else:
-                method = analysis.get("analysis_method", "Deterministic ATS Scan")
-                st.markdown(f'<span class="tag tag-blue">🔍 {method}</span>', unsafe_allow_html=True)
-                st.markdown("### 📊 ATS Compatibility Score")
-
-                ats_score        = analysis.get("ats_score", 0)
-                keyword_match    = analysis.get("keyword_match", 0)
-                interview_prob   = analysis.get("interview_probability", 0)
-                market_value     = analysis.get("market_value", "")
-                analysis_summary = analysis.get("analysis_summary", "")
-                missing_keywords = analysis.get("missing_keywords", [])
-                matched_keywords = analysis.get("matched_keywords", [])
-                strengths        = analysis.get("strengths", [])
-                weaknesses       = analysis.get("weaknesses", [])
-                suggestions      = analysis.get("specific_suggestions", analysis.get("suggestions", []))
-                detected_sections = analysis.get("detected_sections", [])
-                missing_sections  = analysis.get("missing_sections", [])
-                formatting_issues = analysis.get("formatting_issues", [])
+                ats_score          = analysis.get("ats_score", 0)
+                keyword_match      = analysis.get("keyword_match", 0)
+                interview_prob     = analysis.get("interview_probability", 0)
+                market_value       = analysis.get("market_value", "")
+                analysis_summary   = analysis.get("analysis_summary", "")
+                missing_keywords   = analysis.get("missing_keywords", [])
+                matched_keywords   = analysis.get("matched_keywords", [])
+                strengths          = analysis.get("strengths", [])
+                weaknesses         = analysis.get("weaknesses", [])
+                suggestions        = analysis.get("specific_suggestions", analysis.get("suggestions", []))
+                detected_sections  = analysis.get("detected_sections", [])
+                missing_sections   = analysis.get("missing_sections", [])
+                formatting_issues  = analysis.get("formatting_issues", [])
                 achievements_found = analysis.get("achievements_found", [])
-                keyword_density   = analysis.get("keyword_density", 0)
-                word_count        = analysis.get("word_count", 0)
-                contact_info      = analysis.get("contact_info", {})
-                length_feedback   = analysis.get("length_feedback", [])
+                keyword_density    = analysis.get("keyword_density", 0)
+                word_count         = analysis.get("word_count", 0)
+                contact_info       = analysis.get("contact_info", {})
+                length_feedback    = analysis.get("length_feedback", [])
 
-                # ── Top Metrics Row ───────────────────────────────────────────
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    color = score_color(int(ats_score))
-                    st.markdown(f"""
-                    <div class="metric-box">
-                      <div class="metric-label">ATS Score</div>
-                      <div class="metric-value" style="color:{color};">{ats_score}</div>
-                      <div class="metric-sub">/ 100</div>
-                    </div>""", unsafe_allow_html=True)
-                with c2:
-                    color = score_color(int(keyword_match))
-                    st.markdown(f"""
-                    <div class="metric-box">
-                      <div class="metric-label">Keyword Match</div>
-                      <div class="metric-value" style="color:{color};">{keyword_match}</div>
-                      <div class="metric-sub">%</div>
-                    </div>""", unsafe_allow_html=True)
-                with c3:
-                    color = score_color(int(interview_prob))
-                    st.markdown(f"""
-                    <div class="metric-box">
-                      <div class="metric-label">Interview Chance</div>
-                      <div class="metric-value" style="color:{color};">{interview_prob}</div>
-                      <div class="metric-sub">%</div>
-                    </div>""", unsafe_allow_html=True)
-                with c4:
+                # ── 4 Metric cards (replaces Plotly gauges) ───────────────────
+                st.markdown('<div class="metric-row">', unsafe_allow_html=True)
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                with mc1: metric_card(int(ats_score),      "ATS Score")
+                with mc2: metric_card(int(keyword_match),  "Keyword Match")
+                with mc3: metric_card(int(interview_prob), "Interview Chance")
+                with mc4:
                     if market_value:
                         st.markdown(f"""
-                        <div class="metric-box">
+                        <div class="metric-card">
                           <div class="metric-label">Market Value</div>
-                          <div class="metric-value" style="font-size:1.1rem;color:#56d364;">{market_value}</div>
-                          <div class="metric-sub">estimated</div>
+                          <div class="metric-num metric-num-green" style="font-size:1.4rem;">{market_value}</div>
+                          <div style="font-size:0.72rem;color:var(--muted2);margin-top:6px;">estimated</div>
                         </div>""", unsafe_allow_html=True)
                     else:
-                        fmt_score = analysis.get("formatting_score", 0)
-                        fmt_color = score_color(int(fmt_score))
-                        st.markdown(f"""
-                        <div class="metric-box">
-                          <div class="metric-label">Formatting</div>
-                          <div class="metric-value" style="color:{fmt_color};">{fmt_score}</div>
-                          <div class="metric-sub">/ 100</div>
-                        </div>""", unsafe_allow_html=True)
+                        metric_card(int(analysis.get("formatting_score",0)), "Formatting Score")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-                # ── Deterministic Sub-Score Breakdown ─────────────────────────
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.expander("📊 Detailed Score Breakdown (Deterministic)", expanded=True):
+                # ── Sub-score breakdown ───────────────────────────────────────
+                with st.expander("Score breakdown", expanded=True):
                     sub_scores = {
                         "Sections":     analysis.get("section_score", 0),
                         "Keywords":     analysis.get("keyword_match", 0),
                         "Formatting":   analysis.get("formatting_score", 0),
                         "Achievements": analysis.get("achievements_score", 0),
                         "Length":       analysis.get("length_score", 0),
-                        "Contact Info": analysis.get("contact_score", 0),
+                        "Contact info": analysis.get("contact_score", 0),
                     }
-                    for label, val in sub_scores.items():
-                        score_bar(int(val), label)
-
-                    # Word count and keyword density info
-                    density_color = "#56d364" if 1.5 <= keyword_density <= 4.0 else ("#d29922" if keyword_density > 4.0 else "#8b949e")
+                    for lbl, val in sub_scores.items():
+                        score_bar(int(val), lbl)
+                    density_color = "#16A34A" if 1.5 <= keyword_density <= 4.0 else ("#D97706" if keyword_density > 4.0 else "#7BA88C")
                     st.markdown(f"""
-                    <div style="display:flex;gap:2rem;margin-top:0.75rem;flex-wrap:wrap;">
-                      <div style="font-size:0.8rem;color:#8b949e;">📝 Word Count: <strong style="color:#e6edf3;">{word_count}</strong></div>
-                      <div style="font-size:0.8rem;color:#8b949e;">🔑 Keyword Density: <strong style="color:{density_color};">{keyword_density}%</strong></div>
+                    <div style="display:flex;gap:2rem;margin-top:0.6rem;flex-wrap:wrap;">
+                      <span style="font-size:0.82rem;color:var(--muted);">Word count: <strong style="color:var(--text);">{word_count}</strong></span>
+                      <span style="font-size:0.82rem;color:var(--muted);">Keyword density: <strong style="color:{density_color};">{keyword_density}%</strong></span>
                     </div>""", unsafe_allow_html=True)
-
-                    # Length feedback
                     if length_feedback:
                         for fb in length_feedback:
-                            st.markdown(f'<div style="font-size:0.8rem;color:#8b949e;margin-top:0.3rem;">📏 {fb}</div>', unsafe_allow_html=True)
-
-                    # Contact info
-                    contact_items = []
-                    for key, present in contact_info.items():
-                        icon = "✅" if present else "❌"
-                        contact_items.append(f"{icon} {key.title()}")
+                            st.markdown(f'<div style="font-size:0.82rem;color:var(--muted);margin-top:0.25rem;">📏 {fb}</div>', unsafe_allow_html=True)
+                    contact_items = [("✓ " if p else "✗ ") + k.title() for k, p in contact_info.items()]
                     if contact_items:
-                        st.markdown(f'<div style="font-size:0.8rem;color:#8b949e;margin-top:0.5rem;">📋 Contact: {" &nbsp;·&nbsp; ".join(contact_items)}</div>', unsafe_allow_html=True)
-
-                # ── Sections Detected / Missing ──────────────────────────────
-                with st.expander("📑 Resume Sections", expanded=False):
-                    if detected_sections:
-                        det_tags = "".join(f'<span class="tag tag-green">{s}</span>' for s in detected_sections)
-                        st.markdown(f'<div style="margin-bottom:0.5rem;"><strong style="color:#8b949e;font-size:0.8rem;">DETECTED:</strong><br>{det_tags}</div>', unsafe_allow_html=True)
-                    if missing_sections:
-                        miss_tags = "".join(f'<span class="tag tag-red">{s}</span>' for s in missing_sections)
-                        st.markdown(f'<div><strong style="color:#8b949e;font-size:0.8rem;">MISSING:</strong><br>{miss_tags}</div>', unsafe_allow_html=True)
-                    if not missing_sections:
-                        st.markdown('<span class="tag tag-green">✓ All standard sections detected!</span>', unsafe_allow_html=True)
+                        st.markdown(f'<div style="font-size:0.82rem;color:var(--muted);margin-top:0.4rem;">Contact: {" · ".join(contact_items)}</div>', unsafe_allow_html=True)
 
                 # ── Keywords ─────────────────────────────────────────────────
                 st.markdown("<br>", unsafe_allow_html=True)
-                col_l, col_r = st.columns(2)
-
-                with col_l:
-                    st.markdown("#### 🔑 Missing Keywords")
+                kw_l, kw_r = st.columns(2)
+                with kw_l:
+                    st.markdown('<div class="eyebrow">Missing keywords</div>', unsafe_allow_html=True)
                     if missing_keywords:
-                        tags = "".join(f'<span class="tag tag-red">{kw}</span>' for kw in missing_keywords[:15])
-                        st.markdown(f'<div style="margin-top:0.5rem;">{tags}</div>', unsafe_allow_html=True)
+                        st.markdown('<div style="margin-top:0.4rem;">' + "".join(f'<span class="tag tag-red">{kw}</span>' for kw in missing_keywords[:15]) + '</div>', unsafe_allow_html=True)
                     else:
                         st.markdown('<span class="tag tag-green">✓ Great keyword coverage!</span>', unsafe_allow_html=True)
-
-                with col_r:
-                    st.markdown("#### ✅ Matched Keywords")
+                with kw_r:
+                    st.markdown('<div class="eyebrow">Matched keywords</div>', unsafe_allow_html=True)
                     if matched_keywords:
-                        tags = "".join(f'<span class="tag tag-green">{kw}</span>' for kw in matched_keywords[:15])
-                        st.markdown(f'<div style="margin-top:0.5rem;">{tags}</div>', unsafe_allow_html=True)
+                        st.markdown('<div style="margin-top:0.4rem;">' + "".join(f'<span class="tag tag-green">{kw}</span>' for kw in matched_keywords[:15]) + '</div>', unsafe_allow_html=True)
                     else:
-                        st.markdown('<span class="tag tag-red">⚠ No keyword matches found</span>', unsafe_allow_html=True)
+                        st.markdown('<span class="tag tag-red">No keyword matches found</span>', unsafe_allow_html=True)
 
-                # ── Formatting Issues ────────────────────────────────────────
+                # ── Sections ─────────────────────────────────────────────────
+                with st.expander("Resume sections", expanded=False):
+                    if detected_sections:
+                        st.markdown('<div style="margin-bottom:0.4rem;"><div class="eyebrow">Detected</div>' + "".join(f'<span class="tag tag-green">{s}</span>' for s in detected_sections) + '</div>', unsafe_allow_html=True)
+                    if missing_sections:
+                        st.markdown('<div><div class="eyebrow">Missing</div>' + "".join(f'<span class="tag tag-red">{s}</span>' for s in missing_sections) + '</div>', unsafe_allow_html=True)
+                    if not missing_sections:
+                        st.markdown('<span class="tag tag-green">✓ All standard sections detected</span>', unsafe_allow_html=True)
+
+                # ── Formatting issues ─────────────────────────────────────────
                 if formatting_issues:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("#### ⚠️ Formatting Issues")
+                    st.markdown('<div class="eyebrow">Formatting issues</div>', unsafe_allow_html=True)
                     for issue in formatting_issues:
-                        st.markdown(f"""
-                        <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
-                          <span style="color:#d29922;flex-shrink:0;">⚠</span>
-                          <span style="color:#e6edf3;font-size:0.9rem;">{issue}</span>
-                        </div>""", unsafe_allow_html=True)
+                        st.markdown(f'<div class="row-item row-item-amber"><span style="color:var(--amber);flex-shrink:0;">⚠</span><span style="color:var(--text);">{issue}</span></div>', unsafe_allow_html=True)
 
-                # ── Quantified Achievements ──────────────────────────────────
+                # ── Achievements ──────────────────────────────────────────────
                 if achievements_found:
-                    with st.expander(f"📈 Quantified Achievements Found ({len(achievements_found)})", expanded=False):
-                        tags = "".join(f'<span class="tag tag-blue">{a}</span>' for a in achievements_found)
-                        st.markdown(f'<div>{tags}</div>', unsafe_allow_html=True)
+                    with st.expander(f"Quantified achievements ({len(achievements_found)})", expanded=False):
+                        st.markdown('<div>' + "".join(f'<span class="tag tag-blue">{a}</span>' for a in achievements_found) + '</div>', unsafe_allow_html=True)
 
-                # ── AI Summary ───────────────────────────────────────────────
+                # ── AI Summary ────────────────────────────────────────────────
                 if analysis_summary:
                     st.markdown(f"""
                     <div class="card card-accent" style="margin-top:1rem;">
-                      <div style="font-size:0.75rem;color:#8b949e;text-transform:uppercase;margin-bottom:0.4rem;">AI Summary</div>
-                      <div style="color:#e6edf3;line-height:1.6;">{analysis_summary}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                      <div class="eyebrow">AI Summary</div>
+                      <div style="color:var(--text);line-height:1.7;font-size:0.9rem;margin-top:4px;">{analysis_summary}</div>
+                    </div>""", unsafe_allow_html=True)
 
-                # ── AI Strengths & Weaknesses ────────────────────────────────
+                # ── Strengths & weaknesses ────────────────────────────────────
                 st.markdown("<br>", unsafe_allow_html=True)
-                col_s, col_w = st.columns(2)
+                sw_l, sw_r = st.columns(2)
+                with sw_l:
+                    st.markdown('<div class="eyebrow">Strengths</div>', unsafe_allow_html=True)
+                    for s in strengths:
+                        st.markdown(f'<div class="row-item row-item-green"><span style="color:var(--green);font-weight:700;flex-shrink:0;">✓</span><span style="color:var(--text);">{s}</span></div>', unsafe_allow_html=True)
+                with sw_r:
+                    st.markdown('<div class="eyebrow">Areas to improve</div>', unsafe_allow_html=True)
+                    for w in weaknesses:
+                        st.markdown(f'<div class="row-item row-item-amber"><span style="color:var(--amber);font-weight:700;flex-shrink:0;">⚠</span><span style="color:var(--text);">{w}</span></div>', unsafe_allow_html=True)
 
-                with col_s:
-                    st.markdown("#### ✅ Strengths")
-                    if strengths:
-                        for s in strengths:
-                            st.markdown(f"""
-                            <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
-                              <span style="color:#56d364;flex-shrink:0;">✓</span>
-                              <span style="color:#e6edf3;font-size:0.9rem;">{s}</span>
-                            </div>""", unsafe_allow_html=True)
-
-                with col_w:
-                    st.markdown("#### ⚠️ Areas to Improve")
-                    if weaknesses:
-                        for w in weaknesses:
-                            st.markdown(f"""
-                            <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.4rem;">
-                              <span style="color:#d29922;flex-shrink:0;">⚠</span>
-                              <span style="color:#e6edf3;font-size:0.9rem;">{w}</span>
-                            </div>""", unsafe_allow_html=True)
-
-                # ── AI Improvement Suggestions ───────────────────────────────
+                # ── Suggestions ───────────────────────────────────────────────
                 if suggestions:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown("#### 🤖 AI Improvement Suggestions")
-                    for idx, s in enumerate(suggestions, 1):
-                        text = s.get("suggestion", str(s)) if isinstance(s, dict) else str(s)
-                        area = s.get("area", "") if isinstance(s, dict) else ""
-                        
-                        area_html = f'<div style="margin-top:0.3rem;"><span class="tag tag-blue" style="font-size:0.7rem;">{area}</span></div>' if area else ""
-                        
-                        card_html = (
-                            f'<div class="card" style="padding:0.75rem 1rem;margin-bottom:0.5rem;">'
-                            f'<div style="display:flex;gap:0.75rem;align-items:flex-start;">'
-                            f'<span style="background:#1f6feb;color:white;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;flex-shrink:0;">{idx}</span>'
-                            f'<div><span style="color:#e6edf3;font-size:0.9rem;">{text}</span>{area_html}</div>'
-                            f'</div></div>'
-                        )
-                        st.markdown(card_html, unsafe_allow_html=True)
+                    with st.expander(f"Top {len(suggestions)} fixes", expanded=True):
+                        for idx, s in enumerate(suggestions, 1):
+                            text = s.get("suggestion", str(s)) if isinstance(s, dict) else str(s)
+                            area = s.get("area","") if isinstance(s, dict) else ""
+                            area_html = f'<span class="tag tag-blue" style="font-size:0.68rem;margin-top:3px;">{area}</span>' if area else ""
+                            st.markdown(f"""
+                            <div class="card" style="padding:0.6rem 0.9rem;margin-bottom:0.4rem;">
+                              <div style="display:flex;gap:0.6rem;align-items:flex-start;">
+                                <div class="sug-badge">{idx}</div>
+                                <div><span style="color:var(--text);font-size:0.87rem;">{text}</span><div>{area_html}</div></div>
+                              </div>
+                            </div>""", unsafe_allow_html=True)
 
         # ── TAB 2: Cover Letter ───────────────────────────────────────────────
         with tab2:
             if not cover_letter and not st.session_state.analyze_cover:
-                st.info("Cover Letter was not requested for this job.")
+                st.info("Cover letter was not requested for this job.")
             elif not cover_letter:
-                st.warning("⚠️ No cover letter was generated.")
+                st.warning("No cover letter was generated.")
             else:
-                st.markdown("### ✍️ Generated Cover Letter")
+                st.markdown('<div class="eyebrow" style="margin-bottom:0.75rem;">Generated cover letter</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="cover-letter">{cover_letter}</div>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.download_button(
-                    label="⬇️ Download Cover Letter (.txt)",
-                    data=cover_letter,
-                    file_name=f"cover_letter_{job.get('title','job').replace(' ', '_')}.txt",
+                    label="Download cover letter (.txt)", data=cover_letter,
+                    file_name=f"cover_letter_{job.get('title','job').replace(' ','_')}.txt",
                     mime="text/plain",
                 )
-                
-        # ── TAB 3: Tailored Resume ───────────────────────────────────────────────
+
+        # ── TAB 3: Tailored Resume ────────────────────────────────────────────
         with tab3:
-            tailored = st.session_state.get("tailored_resume", "")
+            tailored     = st.session_state.get("tailored_resume","")
             tailored_ats = st.session_state.get("tailored_ats") or {}
             if not tailored:
-                st.info("Auto-Revise Resume was not requested. Go back and check the box to generate a tailored ATS-optimized resume.")
+                st.info("Auto-Revise Resume was not requested. Go back and enable that option.")
             else:
-                st.markdown("### ✨ Your Tailored Resume")
-
-                # ── ATS Before / After Comparison ────────────────────────────
                 orig_score    = int(analysis.get("ats_score", 0)) if analysis else None
                 revised_score = int(tailored_ats.get("overall_score", 0)) if tailored_ats else None
 
                 if revised_score is not None:
-                    delta      = (revised_score - orig_score) if orig_score is not None else None
-                    delta_color = "#56d364" if (delta is not None and delta >= 0) else "#da3633"
-                    delta_icon  = "🎉" if (delta is not None and delta >= 5) else ("✅" if delta is not None and delta >= 0 else "⚠️")
-                    delta_html  = (
-                        f'<span style="background:{delta_color};color:white;padding:0.2rem 0.65rem;'
-                        f'border-radius:12px;font-size:0.85rem;font-weight:700;">'
-                        f'{("+" if delta >= 0 else "")}{delta} {delta_icon}</span>'
-                    ) if delta is not None else ""
-
-                    orig_color    = score_color(orig_score) if orig_score is not None else "#8b949e"
-                    revised_color = score_color(revised_score)
-
-                    orig_label_html = (
-                        f'<div style="font-size:2rem;font-weight:700;color:{orig_color};">{orig_score}</div>'
-                        f'<div style="font-size:0.72rem;color:#8b949e;">/ 100</div>'
-                    ) if orig_score is not None else (
-                        '<div style="font-size:0.85rem;color:#8b949e;">N/A<br>(ATS not run)</div>'
-                    )
+                    delta       = (revised_score - orig_score) if orig_score is not None else None
+                    delta_color = "#16A34A" if (delta is not None and delta >= 0) else "#DC2626"
+                    delta_icon  = "🎉" if (delta is not None and delta >= 5) else ("✓" if delta is not None and delta >= 0 else "⚠")
+                    delta_html  = f'<span style="background:{delta_color};color:white;padding:3px 10px;border-radius:20px;font-size:0.82rem;font-weight:700;">{("+" if delta >= 0 else "")}{delta} {delta_icon}</span>' if delta is not None else ""
+                    orig_html   = f'<div style="font-size:1.8rem;font-weight:800;color:{score_color(orig_score) if orig_score else "#7BA88C"};">{orig_score}</div><div style="font-size:0.7rem;color:var(--muted2);">/ 100</div>' if orig_score is not None else '<div style="font-size:0.82rem;color:var(--muted2);">N/A</div>'
 
                     st.markdown(f"""
-                    <div class="card card-accent" style="padding:1rem 1.25rem;margin-bottom:1rem;">
-                      <div style="font-size:0.72rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">📈 ATS Score Improvement</div>
-                      <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">
-                        <div style="text-align:center;">
-                          <div style="font-size:0.75rem;color:#8b949e;margin-bottom:0.3rem;">Original Resume</div>
-                          {orig_label_html}
-                        </div>
-                        <div style="font-size:1.5rem;color:#8b949e;">→</div>
-                        <div style="text-align:center;">
-                          <div style="font-size:0.75rem;color:#8b949e;margin-bottom:0.3rem;">Revised Resume</div>
-                          <div style="font-size:2rem;font-weight:700;color:{revised_color};">{revised_score}</div>
-                          <div style="font-size:0.72rem;color:#8b949e;">/ 100</div>
-                        </div>
+                    <div class="card card-accent" style="margin-bottom:1rem;">
+                      <div class="eyebrow">Score improvement</div>
+                      <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;margin-top:0.5rem;">
+                        <div style="text-align:center;"><div style="font-size:0.72rem;color:var(--muted2);margin-bottom:4px;">Original</div>{orig_html}</div>
+                        <div style="font-size:1.25rem;color:var(--border2);">→</div>
+                        <div style="text-align:center;"><div style="font-size:0.72rem;color:var(--muted2);margin-bottom:4px;">Revised</div><div style="font-size:1.8rem;font-weight:800;color:{score_color(revised_score)};">{revised_score}</div><div style="font-size:0.7rem;color:var(--muted2);">/ 100</div></div>
                         <div>{delta_html}</div>
                       </div>
-                      <div style="margin-top:0.75rem;">
-                    """ , unsafe_allow_html=True)
-                    score_bar(revised_score, "Revised ATS Score")
+                      <div style="margin-top:0.75rem;">""", unsafe_allow_html=True)
+                    score_bar(revised_score, "Revised ATS score")
                     if orig_score is not None:
-                        score_bar(orig_score, "Original ATS Score")
+                        score_bar(orig_score, "Original ATS score")
                     st.markdown("</div></div>", unsafe_allow_html=True)
 
                 st.markdown("<hr>", unsafe_allow_html=True)
-
-                # Render the markdown directly for clean formatting
                 st.markdown(tailored)
-
                 st.markdown("<br>", unsafe_allow_html=True)
-                dl_col1, dl_col2 = st.columns(2)
-                with dl_col1:
-                    # PDF download (primary)
+                dl1, dl2 = st.columns(2)
+                with dl1:
                     try:
                         from utils.pdf_generator import markdown_to_pdf
                         pdf_bytes = markdown_to_pdf(tailored)
-                        st.download_button(
-                            label="⬇️ Download Resume (.pdf)",
-                            data=pdf_bytes,
-                            file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.pdf",
-                            mime="application/pdf",
-                            type="primary",
-                        )
+                        st.download_button("Download resume (.pdf)", data=pdf_bytes,
+                                           file_name=f"tailored_resume_{job.get('title','job').replace(' ','_')}.pdf",
+                                           mime="application/pdf", type="primary")
                     except Exception as e:
-                        st.warning(f"PDF generation failed: {e}. Use the Markdown download instead.")
-                with dl_col2:
-                    # Markdown download (secondary)
-                    st.download_button(
-                        label="⬇️ Download Resume (.md)",
-                        data=tailored,
-                        file_name=f"tailored_resume_{job.get('title','job').replace(' ', '_')}.md",
-                        mime="text/markdown",
-                    )
+                        st.warning(f"PDF export failed: {e}")
+                with dl2:
+                    st.download_button("Download resume (.md)", data=tailored,
+                                       file_name=f"tailored_resume_{job.get('title','job').replace(' ','_')}.md",
+                                       mime="text/markdown")
 
-        # ── Generate More Panel ────────────────────────────────────────────────
+        # ── Generate More ─────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
+        missing_items = []
+        if not cover_letter: missing_items.append("cover_letter")
+        if not st.session_state.get("tailored_resume",""): missing_items.append("tailored_resume")
 
-        # Determine what hasn't been generated yet
-        missing = []
-        if not cover_letter:
-            missing.append("cover_letter")
-        if not st.session_state.get("tailored_resume", ""):
-            missing.append("tailored_resume")
-
-        if missing:
+        if missing_items:
             st.markdown("""
-            <div class="card card-accent" style="padding:1rem 1.25rem;margin-bottom:0.5rem;">
-              <div style="font-size:0.8rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">
-                ⚡ Generate More for This Job
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            gen_cover  = False
-            gen_tailor = False
-
+            <div class="card card-accent" style="padding:0.85rem 1.1rem;margin-bottom:0.5rem;">
+              <div class="eyebrow">Generate more for this job</div>
+            </div>""", unsafe_allow_html=True)
+            gen_cover = gen_tailor = False
             chk_cols = st.columns(4)
             col_i = 0
-            if "cover_letter" in missing:
+            if "cover_letter" in missing_items:
                 with chk_cols[col_i]:
-                    gen_cover = st.checkbox("✍️ Cover Letter", value=True, key="gen_cover")
+                    gen_cover = st.checkbox("Cover Letter", value=True, key="gen_cover")
                 col_i += 1
-            if "tailored_resume" in missing:
+            if "tailored_resume" in missing_items:
                 with chk_cols[col_i]:
-                    gen_tailor = st.checkbox("✨ Auto-Revise Resume", value=False, key="gen_tailor")
+                    gen_tailor = st.checkbox("Auto-Revise Resume", value=False, key="gen_tailor")
 
-            gen_btn = st.button("▶ Generate Selected", type="primary")
-
-            if gen_btn:
-                resume_text = st.session_state.get("saved_resume_text", "")
+            if st.button("Generate selected", type="primary"):
+                resume_text = st.session_state.get("saved_resume_text","")
                 if not resume_text.strip():
-                    st.error("⚠️ Resume text not found. Please go back and paste your resume again.")
+                    st.error("Resume text not found — please go back and re-paste your resume.")
                 else:
-                    job_title_val  = job.get("title", st.session_state.job_title)
-                    job_desc       = job.get("description", "")
-                    with st.spinner("🤖 Generating..."):
+                    job_title_val = job.get("title", st.session_state.job_title)
+                    job_desc      = job.get("description","")
+                    with st.spinner("Generating…"):
                         if gen_cover:
                             from tools.gemini_tools import GeminiCoverLetterTool
                             cover_tool = GeminiCoverLetterTool()
-                            cover_raw = cover_tool._run(
-                                job_info=json.dumps({
-                                    "title": job_title_val,
-                                    "company": job.get("company", ""),
-                                    "description": job_desc,
-                                }),
-                                resume_text=resume_text,
-                                ats_analysis=json.dumps(analysis)
+                            raw = cover_tool._run(
+                                job_info=json.dumps({"title":job_title_val,"company":job.get("company",""),"description":job_desc}),
+                                resume_text=resume_text, ats_analysis=json.dumps(analysis)
                             )
-                            try:
-                                cover_data = json.loads(cover_raw)
-                                st.session_state.cover_letter = cover_data.get("cover_letter", cover_raw)
-                            except Exception:
-                                st.session_state.cover_letter = cover_raw
-
+                            try:    st.session_state.cover_letter = json.loads(raw).get("cover_letter", raw)
+                            except: st.session_state.cover_letter = raw
                         if gen_tailor:
                             from tools.gemini_resume_builder import GeminiResumeBuilder
                             from utils.ats_scanner import ATSScanner
                             builder = GeminiResumeBuilder()
                             st.session_state.tailored_resume = builder.build_resume(
                                 resume_text=resume_text,
-                                job_info={"title": job_title_val, "company": job.get("company", ""), "description": job_desc},
+                                job_info={"title":job_title_val,"company":job.get("company",""),"description":job_desc},
                                 ats_results=analysis,
                             )
-                            # Re-score with deterministic scanner only (no extra Gemini call)
                             if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
                                 det_scanner = ATSScanner()
                                 st.session_state.tailored_ats = det_scanner.scan(
                                     resume_text=st.session_state.tailored_resume,
-                                    job_description=job_desc,
-                                    job_title=job_title_val,
+                                    job_description=job_desc, job_title=job_title_val,
                                 )
                     st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col1, col2 = st.columns([2, 6])
-        with col1:
-            if st.button("← Pick Another Job", use_container_width=True):
-                st.session_state.step = "select_job"
-                st.session_state.selected_job = None
-                st.session_state.analysis = None
-                st.session_state.cover_letter = ""
-                st.session_state.tailored_resume = ""
-                st.session_state.tailored_ats = None
-                st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 empty state (initial load)
-# ══════════════════════════════════════════════════════════════════════════════
-if st.session_state.step == "search" and not st.session_state.error:
-    st.markdown("""
-    <div style="text-align:center;padding:4rem 2rem;">
-      <div style="font-size:4rem;margin-bottom:1rem;">🤖</div>
-      <div style="font-size:1.5rem;font-weight:600;color:#e6edf3;margin-bottom:0.5rem;">Ready to find your next role</div>
-      <div style="color:#8b949e;max-width:500px;margin:0 auto;line-height:1.6;">
-        Set your search parameters in the sidebar and click <strong>Find Jobs</strong>.<br><br>
-        <span style="color:#1f6feb;">Step 1</span> — Real job listings fetched instantly from Adzuna & RapidAPI (Google Jobs)<br>
-        <span style="color:#d29922;">Step 2</span> — You pick the job that fits you best<br>
-        <span style="color:#238636;">Step 3</span> — Gemini analyzes your resume & writes a tailored cover letter
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-elif st.session_state.step == "search" and st.session_state.error:
-    st.error(f"❌ {st.session_state.error}")
+        if st.button("← Pick a different job"):
+            st.session_state.step = "select_job"
+            st.session_state.selected_job = None
+            st.session_state.analysis = None
+            st.session_state.cover_letter = ""
+            st.session_state.tailored_resume = ""
+            st.session_state.tailored_ats = None
+            st.rerun()

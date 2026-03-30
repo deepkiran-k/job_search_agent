@@ -16,6 +16,14 @@ COUNTRY_CODE_TO_NAME = {
     "sa": "Saudi Arabia", "at": "Austria", "be": "Belgium",
     "ch": "Switzerland",
 }
+# Translation mapping for better Middle Eastern search recall on Google Jobs
+ARABIC_MAPPING = {
+    "software engineer": "Software Engineer OR مهندس برمجيات",
+    "developer": "Developer OR مطور",
+    "data scientist": "Data Scientist OR عالم بيانات",
+    "product manager": "Product Manager OR مدير منتج",
+    "designer": "Designer OR مصمم",
+}
 
 def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us") -> List[Dict[str, Any]]:
     """
@@ -46,7 +54,16 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         if not effective_location:
             effective_location = COUNTRY_CODE_TO_NAME.get(country.lower(), "")
 
-        query = f"{job_title}"
+        # Arabic expansion for SA and AE to boost JSearch local board hits
+        base_title = job_title.lower().strip()
+        search_title = job_title
+        if country.lower() in ["sa", "ae"]:
+            for eng, ar in ARABIC_MAPPING.items():
+                if eng in base_title:
+                    search_title = ar
+                    break
+
+        query = f"{search_title}"
         if effective_location:
             query += f" in {effective_location}"
             
@@ -62,9 +79,9 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         querystring = {
             "query": query,
             "page": "1",
-            "num_pages": "1",
+            "num_pages": str(max(1, fetch_limit // 10)),
             "country": country.lower(),
-            # "date_posted": "3days" # Disabled to increase coverage in international regions
+            "date_posted": "today" # Re-enabling freshness filter to avoid stale results
         }
         
         # Add remote filter specifically if requested
