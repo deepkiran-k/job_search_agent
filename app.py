@@ -467,21 +467,33 @@ if st.session_state.searching:
             from utils.indeed_client import search_indeed
             import concurrent.futures
             all_jobs = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                q_title = st.session_state.job_title
-                q_loc = st.session_state.location
-                q_ctry = st.session_state.get("country","us")
-                q_exp = st.session_state.experience
-                q_en = st.session_state.get("global_english", True)
 
-                f_adzuna  = executor.submit(search_adzuna,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-                f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
+            q_title = st.session_state.job_title
+            q_loc = st.session_state.location
+            q_ctry = st.session_state.get("country","us")
+            q_exp = st.session_state.experience
+            q_en = st.session_state.get("global_english", True)
+
+            # ── Tier 1: Adzuna + SerpAPI (primary, free/low-cost) ──
+            status.update(label="Scanning job boards...", state="running")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                f_adzuna = executor.submit(search_adzuna, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
                 f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-                f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-                
-                for f in [f_adzuna, f_jsearch, f_serpapi, f_indeed]:
+
+                for f in [f_adzuna, f_serpapi]:
                     try: all_jobs.extend(f.result())
-                    except Exception as e: print(f"Fetch failed: {e}")
+                    except Exception as e: print(f"Tier 1 fetch failed: {e}")
+
+            # ── Tier 2: JSearch + Indeed (fallback, only when Tier 1 is empty) ──
+            if not all_jobs:
+                status.update(label="Scanning job boards...", state="running")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
+                    f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+
+                    for f in [f_jsearch, f_indeed]:
+                        try: all_jobs.extend(f.result())
+                        except Exception as e: print(f"Tier 2 fetch failed: {e}")
 
             status.update(label=f"Found {len(all_jobs)} listings — deduplicating...", state="running")
             seen_urls, seen_combos, unique_jobs = set(), set(), []
