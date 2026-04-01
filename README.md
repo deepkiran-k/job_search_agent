@@ -12,11 +12,13 @@ An AI-powered job search and resume optimization platform. Search real jobs from
 
 ## ✨ Features
 
-### 🔍 Multi-Source Job Search
+### 🔍 Intelligent Job Search
 - **Adzuna API** — Real-time job listings across 17 countries
 - **RapidAPI JSearch** — Google Jobs aggregation
-- Concurrent search with deduplication and date sorting
-- Filter by title, location, country, and experience level
+- **RapidAPI Indeed** — On-demand Indeed descriptions and metadata
+- **SerpAPI** — Direct Google Jobs engine for high-accuracy fallback
+- **Concurrent Engine** — Scans all 4 sources simultaneously for maximum speed
+- **Streamlined UI** — "Google-like" entry point with persistent sidebar filters
 
 ### 📊 Deterministic ATS Scoring
 Resume scoring engine that mirrors real ATS software:
@@ -48,11 +50,14 @@ AI-generated cover letters tailored to the specific job and your resume.
 - Deep file analysis: page count, font detection, image detection, table warnings
 - Handles complex PDF structures (IndirectObject resolution)
 
-### ⬇️ PDF Export
-Download your tailored resume as a clean, ATS-friendly PDF with:
-- Blue section headers with underlines
-- Clean typography (Helvetica)
-- Unicode sanitization for maximum compatibility
+### 📄 Direct PDF Export
+- Download your tailored resume as a clean, ATS-friendly PDF with dynamic typography
+- Unicode sanitization for maximum compatibility during recruiter parsing
+
+### 🎨 Premium AI Experience
+- **Interactive Header** — Integrated navigation pills and home-access dashboard
+- **Hidden Chrome** — Clean, standalone app feel with no Streamlit branding
+- **Lottie Animations** — Progressive status updates for heavy-lifting AI tasks
 
 ---
 
@@ -72,12 +77,14 @@ app.py                          # Streamlit UI — 3-step pipeline
     ├── pdf_generator.py         # Markdown → PDF converter (fpdf2)
     ├── adzuna_client.py         # Adzuna job search API client
     ├── rapidapi_client.py       # RapidAPI JSearch client
+    ├── indeed_client.py         # RapidAPI Indeed client (enriched descriptions)
+    ├── serpapi_client.py        # SerpAPI Google Jobs client
     └── helpers.py               # Utility functions
 ```
 
 ### Flow
 ```
-Search Jobs (Adzuna + RapidAPI)
+Search Jobs (Multi-source Concurrent)
         ↓
   Select a Job
         ↓
@@ -100,72 +107,6 @@ Upload/Paste Resume
 
 ---
 
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.11+
-- API keys (all have free tiers):
-  - [Google Gemini API](https://aistudio.google.com/apikey)
-  - [Adzuna API](https://developer.adzuna.com/)
-  - [RapidAPI JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/deepkiran-k/job_search_agent.git
-cd job_search_agent
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Configuration
-
-Create a `.env` file in the project root:
-
-```env
-# Google Gemini API
-GOOGLE_API_KEY=your_gemini_api_key
-
-# Adzuna Job Search API
-ADZUNA_APP_ID=your_adzuna_app_id
-ADZUNA_APP_KEY=your_adzuna_app_key
-
-# RapidAPI - JSearch (Google Jobs)
-RAPIDAPI_KEY=your_rapidapi_key
-```
-
-### Run
-
-```bash
-streamlit run app.py
-```
-
-Open [http://localhost:8501](http://localhost:8501) in your browser.
-
----
-
-## ☁️ Deploy to Streamlit Cloud
-
-1. Push your code to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your repo, set `app.py` as the main file
-4. Add your API keys as **Secrets** in the Streamlit Cloud dashboard:
-   ```toml
-   GOOGLE_API_KEY = "your_key"
-   ADZUNA_APP_ID = "your_id"
-   ADZUNA_APP_KEY = "your_key"
-   RAPIDAPI_KEY = "your_key"
-   ```
-
----
-
 ## 🛠️ Tech Stack
 
 | Component | Technology |
@@ -175,8 +116,8 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 | **ATS Engine** | Pure Python (regex, Counter — zero dependencies) |
 | **PDF Generation** | fpdf2 (pure Python, no system deps) |
 | **Document Parsing** | PyPDF2, python-docx |
-| **Job APIs** | Adzuna REST API, RapidAPI JSearch |
-| **Deployment** | Streamlit Community Cloud |
+| **Job APIs** | Adzuna, RapidAPI (JSearch/Indeed), SerpAPI |
+| **Deployment** | Streamlit Community Cloud (Hidden Chrome Mode) |
 
 ---
 

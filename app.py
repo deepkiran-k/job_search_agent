@@ -27,7 +27,7 @@ def _load_lottie_url(url: str):
     return None
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
-_sidebar_state = "collapsed" if "step" not in st.session_state or st.session_state.get("step") == "search" else "expanded"
+_sidebar_state = "expanded" if st.session_state.get("step") in ["select_job", "analyze", "results"] else "collapsed"
 st.set_page_config(
     page_title="JobOrbit AI",
     page_icon="🟢",
@@ -209,8 +209,23 @@ h1, h2, h3 { font-family: 'Plus Jakarta Sans', sans-serif !important; font-weigh
 hr { border: none !important; border-top: 1px solid var(--border) !important; margin: 1.25rem 0 !important; }
 
 /* ── Hide Streamlit chrome ── */
-#MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 0 !important; }
+#MainMenu, footer { visibility: hidden !important; }
+header[data-testid="stHeader"] { background: transparent !important; height: 3.5rem !important; }
+.stAppDeployButton { display: none !important; }
+button[data-testid="stHeaderActionMenu"] { display: none !important; }
+.block-container { padding-top: 1.5rem !important; }
+
+/* ── Integrated Topbar ── */
+.topbar-wrapper {
+    background: #020617;
+    border-bottom: 1px solid #1E293B;
+    padding: 0.6rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -236,6 +251,7 @@ for key, default in {
     "location": "",
     "experience": "3-5 years",
     "country": "us",
+    "global_english": True,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -301,19 +317,23 @@ def topbar(current_step: str):
         pills_html += f'<span class="{cls}">{lbl}</span>'
         if i < len(steps) - 1:
             pills_html += '<span class="spill-sep"></span>'
-    right_html = ""
-    if current_step == "results":
-        right_html = '<span style="font-size:0.75rem;background:#ECFDF5;color:#15803D;padding:4px 12px;border-radius:20px;border:1px solid #86EFAC;font-weight:600;">Analysis complete</span>'
-    elif current_step == "select_job":
-        right_html = f'<span style="font-size:0.78rem;color:var(--muted2);">{len(st.session_state.jobs)} jobs found</span>'
-    st.markdown(f"""
-    <div class="topbar">
-      <div class="topbar-logo"><div class="logo-dot"></div>JobOrbit AI</div>
-      <div class="step-pills">{pills_html}</div>
-      <div>{right_html}</div>
-    </div>
-    <div style="margin-bottom:1.25rem;"></div>
-    """, unsafe_allow_html=True)
+    
+    # Use 3 columns for perfect alignment within the logic
+    # We use a container to apply the visual 'bar' look
+    with st.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
+        # We'll use custom HTML for the logo and pills, and a real button for the 'Home'
+        with c1:
+            st.markdown('<div style="display:flex;align-items:center;height:40px;color:white;font-weight:800;font-size:1.1rem;"><div style="width:10px;height:10px;background:#22C55E;border-radius:50%;margin-right:10px;box-shadow:0 0 10px rgba(34,197,94,0.5);"></div>JobOrbit AI</div>', unsafe_allow_html=True)
+        with c2:
+            st.markdown(f'<div style="display:flex;justify-content:center;align-items:center;height:40px;">{pills_html}</div>', unsafe_allow_html=True)
+        with c3:
+            if current_step != "search":
+                if st.button("🏠 Home", key=f"top_nav_{current_step}", use_container_width=True):
+                    st.session_state.step = "search"
+                    st.rerun()
+        # Add a subtle separator
+        st.markdown('<div style="border-bottom:1px solid var(--border);margin-bottom:1.5rem;opacity:0.5;"></div>', unsafe_allow_html=True)
 
 def job_banner(job: dict):
     url_btn    = f'<a class="apply-btn" href="{job["url"]}" target="_blank">Apply now →</a>' if job.get("url") else ""
@@ -351,7 +371,7 @@ _COUNTRY_OPTIONS = {
     "za": "🇿🇦 South Africa",  "nz": "🇳🇿 New Zealand",
     "sg": "🇸🇬 Singapore",     "sa": "🇸🇦 Saudi Arabia",
     "at": "🇦🇹 Austria",       "be": "🇧🇪 Belgium",
-    "ch": "🇨🇭 Switzerland",
+    "ch": "🇨🇭 Switzerland",    "tr": "🇹🇷 Turkey",
 }
 
 
@@ -373,7 +393,7 @@ if st.session_state.step != "search":
         experience_input = st.selectbox("Experience Level",
                                         ["0-1 years","1-3 years","3-5 years","5-10 years","10+ years"],
                                         index=["0-1 years","1-3 years","3-5 years","5-10 years","10+ years"].index(st.session_state.experience))
-
+        
         search_clicked = st.button("Search Again", type="primary", use_container_width=True,
                                    disabled=st.session_state.searching)
 
@@ -443,12 +463,23 @@ if st.session_state.searching:
         try:
             from utils.adzuna_client import search_adzuna
             from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
+            from utils.serpapi_client import search_serpapi
+            from utils.indeed_client import search_indeed
             import concurrent.futures
             all_jobs = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                f_adzuna  = executor.submit(search_adzuna,  job_title=st.session_state.job_title, location=st.session_state.location, max_results=35, country=st.session_state.get("country","us"), experience=st.session_state.experience)
-                f_jsearch = executor.submit(search_jsearch, job_title=st.session_state.job_title, location=st.session_state.location, max_results=35, experience=st.session_state.experience, country=st.session_state.get("country","us"))
-                for f in [f_adzuna, f_jsearch]:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                q_title = st.session_state.job_title
+                q_loc = st.session_state.location
+                q_ctry = st.session_state.get("country","us")
+                q_exp = st.session_state.experience
+                q_en = st.session_state.get("global_english", True)
+
+                f_adzuna  = executor.submit(search_adzuna,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+                f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
+                f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+                f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+                
+                for f in [f_adzuna, f_jsearch, f_serpapi, f_indeed]:
                     try: all_jobs.extend(f.result())
                     except Exception as e: print(f"Fetch failed: {e}")
 
@@ -460,7 +491,7 @@ if st.session_state.searching:
                 if (url and url in seen_urls) or combo in seen_combos:
                     continue
                 seen_urls.add(url); seen_combos.add(combo); unique_jobs.append(job)
-            unique_jobs.sort(key=lambda x: str(x.get("posted_date","")), reverse=True)
+            unique_jobs.sort(key=lambda x: x.get("posted_timestamp", 0), reverse=True)
             st.session_state.jobs = unique_jobs
             st.session_state.step = "select_job"
             if not unique_jobs:
@@ -512,6 +543,7 @@ if st.session_state.step == "search" and not st.session_state.error:
             _exp_idx = _exp_opts.index(_curr_exp) if _curr_exp in _exp_opts else 2
             _hero_exp = st.selectbox("Experience", _exp_opts, index=_exp_idx, key="hero_exp")
 
+
         if st.button("Search Jobs", type="primary", use_container_width=True, key="hero_search_btn"):
             exp_map = {"0-1 yrs":"0-1 years","1-3 yrs":"1-3 years","3-5 yrs":"3-5 years","5-10 yrs":"5-10 years","10+ yrs":"10+ years"}
             st.session_state.job_title  = _hero_title
@@ -536,7 +568,7 @@ if st.session_state.step == "search" and not st.session_state.error:
           <div class="hiw-card">
             <div class="hiw-num">01 — Search</div>
             <div class="hiw-title">Real listings, live</div>
-            <div class="hiw-desc">We scan Adzuna &amp; JSearch simultaneously for up-to-date jobs.</div>
+            <div class="hiw-desc">We scan multiple job boards simultaneously for up-to-date listings.</div>
           </div>
           <div class="hiw-card">
             <div class="hiw-num">02 — Select</div>
@@ -568,6 +600,9 @@ if st.session_state.step == "select_job":
         st.error(f"❌ {st.session_state.error}")
     elif not jobs:
         st.warning("⚠️ No jobs found. Try a broader title or different location.")
+        if st.button("← New Search", use_container_width=True):
+            st.session_state.step = "search"
+            st.rerun()
     else:
         hcol1, _ = st.columns([3, 1])
         with hcol1:
@@ -584,7 +619,7 @@ if st.session_state.step == "select_job":
             salary      = job.get("salary_display", job.get("salary", ""))
             description = job.get("description", "")
             url         = job.get("url", "")
-            posted      = job.get("posted_date", "")[:10] if job.get("posted_date") else ""
+            posted      = job.get("posted_date", "") if job.get("posted_date") else ""
             contract    = job.get("contract_type", "")
             source      = job.get("source", "")
 
@@ -625,17 +660,26 @@ if st.session_state.step == "select_job":
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.step == "analyze":
     topbar("analyze")
+        
     jb = st.session_state.selected_job
     job_banner(jb)
 
-    # ── On-demand enrichment for JSearch jobs ──
-    if st.session_state.get("needs_enrichment") and "JSearch" in jb.get("source", ""):
-        if len(jb.get("description", "").strip()) < 100:
-            with st.spinner("📄 Fetching full job details..."):
+    # ── On-demand enrichment for JSearch & Indeed jobs ──
+    if st.session_state.get("needs_enrichment"):
+        if "JSearch" in jb.get("source", "") and len(jb.get("description", "").strip()) < 100:
+            with st.spinner("📄 Fetching JSearch details..."):
                 from utils.rapidapi_client import fetch_job_details
                 full_desc = fetch_job_details(jb.get("id"), os.getenv("RAPIDAPI_KEY"))
                 if full_desc:
                     jb["description"] = full_desc[:5000]
+                    jb["is_highlights_only"] = False
+                    st.session_state.selected_job = jb
+        elif "Indeed" in jb.get("source", ""):
+            with st.spinner("📄 Fetching Indeed details..."):
+                from utils.indeed_client import enrich_indeed_job
+                full_desc = enrich_indeed_job(jb.get("job_id_raw", ""), jb.get("locality", "us"))
+                if full_desc:
+                    jb["description"] = full_desc[:6000]
                     jb["is_highlights_only"] = False
                     st.session_state.selected_job = jb
         st.session_state.needs_enrichment = False
@@ -790,6 +834,7 @@ if st.session_state.step == "analyze":
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.step == "results":
     topbar("results")
+        
     analysis     = st.session_state.analysis or {}
     cover_letter = st.session_state.cover_letter or ""
     job          = st.session_state.selected_job or {}

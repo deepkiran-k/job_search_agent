@@ -17,7 +17,7 @@ COUNTRY_NAMES = {
     "switzerland",
 }
 
-def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "") -> List[Dict[str, Any]]:
+def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
     """
     Search Adzuna API for job listings.
     
@@ -39,13 +39,16 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
         return []
     
     # Adzuna does not support these regions. Skip to avoid 404 errors.
-    if country.lower() in ["sa", "ae"]:
+    if country.lower() in ["sa", "ae", "tr"]:
         return []
         
     try:
         # Build search query
         what = job_title.strip()
         where = location.strip() if location else ""
+        
+        if not what and not where:
+            return []
         
         # Adzuna API endpoint
         url = f"https://api.adzuna.com/v1/api/jobs/{country.lower()}/search/1"
@@ -61,6 +64,7 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
             "content-type": "application/json",
             "sort_by": "date",
         }
+
         
         # Handle remote search logic
         REMOTE_KEYWORDS = {"remote", "anywhere", "flexible", "work from home", "wfh", "virtual"}
@@ -121,11 +125,22 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
                 "salary_max": result.get("salary_max"),
                 "salary_display": _format_salary(result.get("salary_min"), result.get("salary_max")),
                 "posted_date": result.get("created", ""),
+                "posted_timestamp": 0,
                 "url": result.get("redirect_url", ""),
                 "contract_type": result.get("contract_type", ""),
                 "category": result.get("category", {}).get("label", ""),
                 "source": "Adzuna"
             }
+            
+            # Simple ISO parse for Adzuna sorting (e.g., 2024-03-31T12:00:00Z)
+            created_str = result.get("created", "")
+            if created_str:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    job["posted_timestamp"] = dt.timestamp()
+                except: pass
+
             jobs.append(job)
             
             if len(jobs) >= max_results:

@@ -14,7 +14,7 @@ COUNTRY_CODE_TO_NAME = {
     "pl": "Poland", "es": "Spain", "br": "Brazil", "mx": "Mexico",
     "za": "South Africa", "nz": "New Zealand", "sg": "Singapore",
     "sa": "Saudi Arabia", "at": "Austria", "be": "Belgium",
-    "ch": "Switzerland",
+    "ch": "Switzerland",  "tr": "Turkey",
 }
 # Translation mapping for better Middle Eastern search recall on Google Jobs
 ARABIC_MAPPING = {
@@ -24,8 +24,16 @@ ARABIC_MAPPING = {
     "product manager": "Product Manager OR مدير منتج",
     "designer": "Designer OR مصمم",
 }
+# Turkish expansion for better Google Jobs recall in Turkey
+TURKISH_MAPPING = {
+    "software engineer": "Software Engineer OR Yazılım Mühendisi",
+    "developer": "Developer OR Geliştirici",
+    "data scientist": "Data Scientist OR Veri Bilimcisi",
+    "product manager": "Product Manager OR Ürün Yöneticisi",
+    "designer": "Designer OR Tasarımcı",
+}
 
-def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us") -> List[Dict[str, Any]]:
+def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us", global_english: bool = True) -> List[Dict[str, Any]]:
     """
     Search JSearch (Google Jobs via RapidAPI) for fresh job listings.
     
@@ -40,7 +48,6 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         List of job dictionaries matching the standard internal format
     """
     api_key = os.getenv("RAPIDAPI_KEY")
-    
     if not api_key:
         print("Warning: RAPIDAPI_KEY not found in environment. Skipping JSearch.")
         return []
@@ -48,6 +55,9 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
     try:
         url = "https://jsearch.p.rapidapi.com/search"
         
+        if not job_title.strip():
+            return []
+
         # Build query string
         # If no specific location given, fall back to the selected country name
         effective_location = location.strip()
@@ -57,11 +67,20 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         # Arabic expansion for SA and AE to boost JSearch local board hits
         base_title = job_title.lower().strip()
         search_title = job_title
-        if country.lower() in ["sa", "ae"]:
-            for eng, ar in ARABIC_MAPPING.items():
-                if eng in base_title:
-                    search_title = ar
-                    break
+        # Expansion logic: only apply if global_english is False
+        base_title = job_title.lower().strip()
+        search_title = job_title
+        if not global_english:
+            if country.lower() in ["sa", "ae"]:
+                for eng, ar in ARABIC_MAPPING.items():
+                    if eng in base_title:
+                        search_title = ar
+                        break
+            elif country.lower() == "tr":
+                for eng, trk in TURKISH_MAPPING.items():
+                    if eng in base_title:
+                        search_title = trk
+                        break
 
         query = f"{search_title}"
         if effective_location:
@@ -81,8 +100,9 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             "page": "1",
             "num_pages": str(max(1, fetch_limit // 10)),
             "country": country.lower(),
-            "date_posted": "today" # Re-enabling freshness filter to avoid stale results
+            "date_posted": "today"
         }
+
         
         # Add remote filter specifically if requested
         # JSearch also takes remote filters through its own structure if needed,
@@ -193,6 +213,7 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
                 "salary_max": salary_max,
                 "salary_display": salary_display,
                 "posted_date": posted_date,
+                "posted_timestamp": int(ts) if ts else 0,
                 "url": result.get("job_apply_link", ""),
                 "contract_type": result.get("job_employment_type", ""),
                 "category": title, # Jsearch doesn't have a distinct broad category field
