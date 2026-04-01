@@ -124,7 +124,7 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
                 "salary_min": result.get("salary_min"),
                 "salary_max": result.get("salary_max"),
                 "salary_display": _format_salary(result.get("salary_min"), result.get("salary_max")),
-                "posted_date": result.get("created", ""),
+                "posted_date": result.get("created", "")[:10],
                 "posted_timestamp": 0,
                 "url": result.get("redirect_url", ""),
                 "contract_type": result.get("contract_type", ""),
