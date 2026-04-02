@@ -20,6 +20,7 @@ import streamlit as st
 from streamlit_lottie import st_lottie
 import requests as _requests
 
+@st.cache_data
 def _load_lottie_url(url: str):
     try:
         r = _requests.get(url, timeout=5)
