@@ -43,6 +43,79 @@ st.set_page_config(
     initial_sidebar_state=_sidebar_state,
 )
 
+# ── SEARCH-FIRST EXECUTION ──────────────────────────────────────────────────
+# This block runs before ANY UI rendering to ensure total stability on Cloud
+if st.session_state.get("searching"):
+    # Load animation only if not already in state
+    if "lottie_json" not in st.session_state:
+        st.session_state.lottie_json = _load_lottie_url(LOTTIE_SEARCH_URL)
+        
+    with st.status("Searching for jobs...", expanded=True) as status:
+        if st.session_state.lottie_json:
+            st_lottie(st.session_state.lottie_json, height=120, key="search_anim_top")
+        
+        # Explicitly clear old results to speed up the run
+        st.session_state.jobs = []
+        st.session_state.selected_job = None
+        st.session_state.analysis = None
+        st.session_state.error = None
+        
+        try:
+            status.update(label="Scanning job boards...", state="running")
+            print(f"DEBUG: Starting search for {st.session_state.job_title} in {st.session_state.location}")
+            
+            all_jobs = []
+            q_title = st.session_state.job_title
+            q_loc = st.session_state.location
+            q_ctry = st.session_state.get("country","us")
+            q_exp = st.session_state.experience
+            q_en = st.session_state.get("global_english", True)
+
+            # ── Tier 1: Adzuna + SerpAPI (primary, free/low-cost) ──
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                f_adzuna = executor.submit(search_adzuna, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+                f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+
+                for f in [f_adzuna, f_serpapi]:
+                    try: all_jobs.extend(f.result())
+                    except Exception as e: print(f"Tier 1 fetch failed: {e}")
+
+            # ── Tier 2: JSearch + Indeed (fallback, only when Tier 1 is empty) ──
+            if not all_jobs:
+                status.update(label="Scanning fallbacks...", state="running")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
+                    f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+
+                    for f in [f_jsearch, f_indeed]:
+                        try: all_jobs.extend(f.result())
+                        except Exception as e: print(f"Tier 2 fetch failed: {e}")
+
+            status.update(label=f"Found {len(all_jobs)} listings — deduplicating...", state="running")
+            seen_urls, seen_combos, unique_jobs = set(), set(), []
+            for job in all_jobs:
+                url   = job.get("url","")
+                combo = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
+                if (url and url in seen_urls) or combo in seen_combos:
+                    continue
+                seen_urls.add(url); seen_combos.add(combo); unique_jobs.append(job)
+            
+            unique_jobs.sort(key=lambda x: x.get("posted_timestamp", 0), reverse=True)
+            st.session_state.jobs = unique_jobs
+            st.session_state.step = "select_job"
+            
+            if not unique_jobs:
+                st.session_state.error = "No jobs found. Try a broader title or different location."
+            status.update(label=f"✓ Found {len(unique_jobs)} unique listings", state="complete")
+            
+        except Exception as e:
+            st.session_state.error = f"Job search failed: {e}"
+            st.session_state.step = "search"
+            status.update(label="Search failed", state="error")
+    
+    st.session_state.searching = False
+    st.rerun()
+
 os.environ.setdefault("OPENAI_API_KEY", "sk-dummy-not-used-gemini-handles-llm")
 from core.settings import settings
 
@@ -466,70 +539,6 @@ if search_clicked:
     st.session_state.tailored_ats = None
     st.session_state.error = None
     st.session_state.searching = True
-
-if st.session_state.searching:
-    _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
-    with st.status("Searching for jobs...", expanded=True) as status:
-        if _lottie_search:
-            st_lottie(_lottie_search, height=120, key="search_anim")
-        
-        # Explicitly clear old results to speed up the rerun
-        st.session_state.jobs = []
-        st.session_state.selected_job = None
-        st.session_state.analysis = None
-        
-        try:
-            status.update(label="Scanning job boards...", state="running")
-            all_jobs = []
-
-            q_title = st.session_state.job_title
-            q_loc = st.session_state.location
-            q_ctry = st.session_state.get("country","us")
-            q_exp = st.session_state.experience
-            q_en = st.session_state.get("global_english", True)
-
-            # ── Tier 1: Adzuna + SerpAPI (primary, free/low-cost) ──
-            status.update(label="Scanning job boards...", state="running")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                f_adzuna = executor.submit(search_adzuna, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-                f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-
-                for f in [f_adzuna, f_serpapi]:
-                    try: all_jobs.extend(f.result())
-                    except Exception as e: print(f"Tier 1 fetch failed: {e}")
-
-            # ── Tier 2: JSearch + Indeed (fallback, only when Tier 1 is empty) ──
-            if not all_jobs:
-                status.update(label="Scanning job boards...", state="running")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                    f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
-                    f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-
-                    for f in [f_jsearch, f_indeed]:
-                        try: all_jobs.extend(f.result())
-                        except Exception as e: print(f"Tier 2 fetch failed: {e}")
-
-            status.update(label=f"Found {len(all_jobs)} listings — deduplicating...", state="running")
-            seen_urls, seen_combos, unique_jobs = set(), set(), []
-            for job in all_jobs:
-                url   = job.get("url","")
-                combo = f"{job.get('title','').lower()}|{job.get('company','').lower()}"
-                if (url and url in seen_urls) or combo in seen_combos:
-                    continue
-                seen_urls.add(url); seen_combos.add(combo); unique_jobs.append(job)
-            unique_jobs.sort(key=lambda x: x.get("posted_timestamp", 0), reverse=True)
-            st.session_state.jobs = unique_jobs
-            st.session_state.step = "select_job"
-            if not unique_jobs:
-                st.session_state.error = "No jobs found. Try a broader title or different location."
-            status.update(label=f"✓ Found {len(unique_jobs)} unique listings", state="complete")
-        except Exception as e:
-            st.session_state.error = f"Job search failed: {e}"
-            st.session_state.step = "search"
-            status.update(label="Search failed", state="error")
-    
-    # Reset searching flag ONLY after everything is done
-    st.session_state.searching = False
     st.rerun()
 
 
