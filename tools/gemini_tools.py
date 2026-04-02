@@ -1,5 +1,5 @@
-# tools/gemini_tools.py - GEMINI TOOLS FOR CREWAI
 import json
+from datetime import datetime
 from typing import Any
 from utils.gemini_ats import GeminiATSScorer
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -99,6 +99,8 @@ COMPANY: {company}
 JOB DESCRIPTION:
 {job_desc}
 
+CURRENT DATE: {datetime.now().strftime('%B %d, %Y')}
+
 CANDIDATE'S RESUME:
 {resume_text[:1500] if resume_text else "Not provided - write a strong general letter for this role."}
 
@@ -112,6 +114,7 @@ Requirements:
 - Keep to 3-4 paragraphs
 - End with strong call to action
 - Use proper business letter format
+- Use the CURRENT DATE provided above for the letter date
 - Sign off with "Sincerely," and "[Your Name]"
 
 Write the complete cover letter including the salutation and signature.
@@ -157,7 +160,10 @@ Write the complete cover letter including the salutation and signature.
             job_title = "the position"
             company = "your company"
         
-        return f"""Dear Hiring Manager,
+        now = datetime.now().strftime('%B %d, %Y')
+        return f"""{now}
+
+Dear Hiring Manager,
 
 I am writing to express my strong interest in the {job_title} position at {company}. With my background in technology and proven track record of delivering results, I am confident in my ability to contribute to your team.
 
