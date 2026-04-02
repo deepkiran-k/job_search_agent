@@ -37,7 +37,7 @@ class Settings:
                 google_api_key=cls.GOOGLE_API_KEY,
                 temperature=0.4,
                 max_output_tokens=4096,
-                convert_system_message_to_human=True
+                convert_system_message_to_human=False
             )
         else:
             return None

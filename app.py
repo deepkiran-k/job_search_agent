@@ -9,9 +9,12 @@ LOTTIE_ANALYZE_URL = "https://lottie.host/06e32af1-7e96-4ddd-8b97-57b44baed110/3
 
 import os, json, asyncio
 try:
-    asyncio.get_event_loop()
+    asyncio.get_running_loop()
 except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
 import streamlit as st
 from streamlit_lottie import st_lottie
