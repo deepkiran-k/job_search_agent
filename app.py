@@ -241,7 +241,7 @@ button[data-testid="stHeaderActionMenu"] { display: none !important; }
 # ══════════════════════════════════════════════════════════════════════════════
 # Session state
 # ══════════════════════════════════════════════════════════════════════════════
-for key, default in {
+APP_DEFAULTS = {
     "step": "search",
     "jobs": [],
     "selected_job": None,
@@ -260,7 +260,17 @@ for key, default in {
     "experience": "3-5 years",
     "country": "us",
     "global_english": True,
-}.items():
+    "parsed_file": None,
+    "file_checks": None,
+    "saved_resume_text": "",
+    "needs_enrichment": False,
+}
+
+def reset_app_state():
+    for key, val in APP_DEFAULTS.items():
+        st.session_state[key] = val
+
+for key, default in APP_DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -338,7 +348,7 @@ def topbar(current_step: str):
         with c3:
             if current_step != "search":
                 if st.button("🏠 Home", key=f"top_nav_{current_step}", use_container_width=True):
-                    st.session_state.step = "search"
+                    reset_app_state()
                     st.rerun()
         # Add a subtle separator
         st.markdown('<div style="border-bottom:1px solid var(--border);margin-bottom:1.5rem;opacity:0.5;"></div>', unsafe_allow_html=True)
@@ -413,14 +423,7 @@ if st.session_state.step != "search":
                                    disabled=st.session_state.searching)
 
         if st.button("New Search", use_container_width=True):
-            st.session_state.step = "search"
-            st.session_state.jobs = []
-            st.session_state.selected_job = None
-            st.session_state.analysis = None
-            st.session_state.cover_letter = ""
-            st.session_state.tailored_resume = ""
-            st.session_state.tailored_ats = None
-            st.session_state.error = None
+            reset_app_state()
             st.rerun()
 
         st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
@@ -466,6 +469,7 @@ if search_clicked:
     st.session_state.tailored_ats = None
     st.session_state.error = None
     st.session_state.searching = True
+    st.rerun()
 
 if st.session_state.searching:
     _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
@@ -628,7 +632,7 @@ if st.session_state.step == "select_job":
     elif not jobs:
         st.warning("⚠️ No jobs found. Try a broader title or different location.")
         if st.button("← New Search", use_container_width=True):
-            st.session_state.step = "search"
+            reset_app_state()
             st.rerun()
     else:
         hcol1, _ = st.columns([3, 1])
