@@ -14,7 +14,9 @@ COUNTRY_NAMES = {
     "australia", "germany", "france", "italy", "netherlands", "poland",
     "spain", "brazil", "mexico", "south africa", "new zealand", "singapore",
     "united arab emirates", "uae", "saudi arabia", "austria", "belgium",
-    "switzerland",
+    "switzerland", "turkey", "ireland", "portugal", "sweden", "norway",
+    "denmark", "finland", "israel", "japan", "south korea", "argentina",
+    "colombia", "philippines", "malaysia",
 }
 
 def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
@@ -39,7 +41,11 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
         return []
     
     # Adzuna does not support these regions. Skip to avoid 404 errors.
-    if country.lower() in ["sa", "ae", "tr"]:
+    _ADZUNA_UNSUPPORTED = {
+        "sa", "ae", "tr", "ie", "pt", "se", "no", "dk", "fi",
+        "il", "jp", "kr", "ar", "co", "ph", "my",
+    }
+    if country.lower() in _ADZUNA_UNSUPPORTED:
         return []
         
     try:

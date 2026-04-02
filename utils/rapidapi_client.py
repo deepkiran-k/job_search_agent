@@ -14,7 +14,11 @@ COUNTRY_CODE_TO_NAME = {
     "pl": "Poland", "es": "Spain", "br": "Brazil", "mx": "Mexico",
     "za": "South Africa", "nz": "New Zealand", "sg": "Singapore",
     "sa": "Saudi Arabia", "at": "Austria", "be": "Belgium",
-    "ch": "Switzerland",  "tr": "Turkey",
+    "ch": "Switzerland", "tr": "Turkey",
+    "ie": "Ireland", "pt": "Portugal",
+    "se": "Sweden", "no": "Norway", "dk": "Denmark", "fi": "Finland",
+    "il": "Israel", "jp": "Japan", "kr": "South Korea",
+    "ar": "Argentina", "co": "Colombia", "ph": "Philippines", "my": "Malaysia",
 }
 # Translation mapping for better Middle Eastern search recall on Google Jobs
 ARABIC_MAPPING = {
@@ -100,7 +104,7 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             "page": "1",
             "num_pages": str(max(1, fetch_limit // 10)),
             "country": country.lower(),
-            "date_posted": "today"
+            "date_posted": "all"
         }
 
         

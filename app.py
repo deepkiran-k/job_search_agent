@@ -372,6 +372,13 @@ _COUNTRY_OPTIONS = {
     "sg": "🇸🇬 Singapore",     "sa": "🇸🇦 Saudi Arabia",
     "at": "🇦🇹 Austria",       "be": "🇧🇪 Belgium",
     "ch": "🇨🇭 Switzerland",    "tr": "🇹🇷 Turkey",
+    "ie": "🇮🇪 Ireland",       "pt": "🇵🇹 Portugal",
+    "se": "🇸🇪 Sweden",        "no": "🇳🇴 Norway",
+    "dk": "🇩🇰 Denmark",       "fi": "🇫🇮 Finland",
+    "il": "🇮🇱 Israel",        "jp": "🇯🇵 Japan",
+    "kr": "🇰🇷 South Korea",   "ar": "🇦🇷 Argentina",
+    "co": "🇨🇴 Colombia",      "ph": "🇵🇭 Philippines",
+    "my": "🇲🇾 Malaysia",
 }
 
 
@@ -676,7 +683,7 @@ if st.session_state.step == "analyze":
     jb = st.session_state.selected_job
     job_banner(jb)
 
-    # ── On-demand enrichment for JSearch & Indeed jobs ──
+    # ── On-demand enrichment for JSearch jobs ──
     if st.session_state.get("needs_enrichment"):
         if "JSearch" in jb.get("source", "") and len(jb.get("description", "").strip()) < 100:
             with st.spinner("📄 Fetching JSearch details..."):
@@ -684,14 +691,6 @@ if st.session_state.step == "analyze":
                 full_desc = fetch_job_details(jb.get("id"), os.getenv("RAPIDAPI_KEY"))
                 if full_desc:
                     jb["description"] = full_desc[:5000]
-                    jb["is_highlights_only"] = False
-                    st.session_state.selected_job = jb
-        elif "Indeed" in jb.get("source", ""):
-            with st.spinner("📄 Fetching Indeed details..."):
-                from utils.indeed_client import enrich_indeed_job
-                full_desc = enrich_indeed_job(jb.get("job_id_raw", ""), jb.get("locality", "us"))
-                if full_desc:
-                    jb["description"] = full_desc[:6000]
                     jb["is_highlights_only"] = False
                     st.session_state.selected_job = jb
         st.session_state.needs_enrichment = False
