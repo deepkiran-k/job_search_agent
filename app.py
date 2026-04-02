@@ -462,6 +462,7 @@ if search_clicked:
     st.session_state.error = None
     st.session_state.step = "search"
     st.session_state.searching = True
+    st.rerun()
 
 if st.session_state.searching:
     st.session_state.searching = False
