@@ -19,6 +19,11 @@ except RuntimeError:
 import streamlit as st
 from streamlit_lottie import st_lottie
 import requests as _requests
+import concurrent.futures
+from utils.adzuna_client import search_adzuna
+from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
+from utils.serpapi_client import search_serpapi
+from utils.indeed_client import search_indeed
 
 def _load_lottie_url(url: str):
     try:
@@ -463,18 +468,18 @@ if search_clicked:
     st.session_state.searching = True
 
 if st.session_state.searching:
-    st.session_state.searching = False
     _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
     with st.status("Searching for jobs...", expanded=True) as status:
         if _lottie_search:
             st_lottie(_lottie_search, height=120, key="search_anim")
-        status.update(label="Scanning job boards...", state="running")
+        
+        # Explicitly clear old results to speed up the rerun
+        st.session_state.jobs = []
+        st.session_state.selected_job = None
+        st.session_state.analysis = None
+        
         try:
-            from utils.adzuna_client import search_adzuna
-            from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
-            from utils.serpapi_client import search_serpapi
-            from utils.indeed_client import search_indeed
-            import concurrent.futures
+            status.update(label="Scanning job boards...", state="running")
             all_jobs = []
 
             q_title = st.session_state.job_title
@@ -485,7 +490,7 @@ if st.session_state.searching:
 
             # ── Tier 1: Adzuna + SerpAPI (primary, free/low-cost) ──
             status.update(label="Scanning job boards...", state="running")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 f_adzuna = executor.submit(search_adzuna, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
                 f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
 
@@ -523,7 +528,8 @@ if st.session_state.searching:
             st.session_state.step = "search"
             status.update(label="Search failed", state="error")
     
-    # Enrichment happens on-demand when a job is selected.
+    # Reset searching flag ONLY after everything is done
+    st.session_state.searching = False
     st.rerun()
 
 
