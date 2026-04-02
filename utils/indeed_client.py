@@ -16,6 +16,10 @@ def search_indeed(job_title: str, location: str = "", max_results: int = 20, cou
         url = "https://indeed-scraper-api.p.rapidapi.com/api/job"
         
         # Build payload according to the new API spec
+        # Use wider time range for countries with sparse Indeed coverage
+        _MAJOR_INDEED_MARKETS = {"us", "gb", "ca", "au", "in"}
+        is_major = country.lower() in _MAJOR_INDEED_MARKETS
+        
         payload = {
             "scraper": {
                 "maxRows": max_results,
@@ -23,13 +27,13 @@ def search_indeed(job_title: str, location: str = "", max_results: int = 20, cou
                 "location": location or "",
                 "country": country.lower(),
                 "sort": "date",
-                "fromDays": "7"
+                "fromDays": "7" if is_major else "14"
             }
         }
         
-        # Map experience level if possible
-        if experience:
-            # Entry level check
+        # Only apply level filter on major markets — smaller markets
+        # return 0 results with level filtering due to sparse inventory
+        if experience and is_major:
             if any(x in experience.lower() for x in ["0-1", "1-3", "entry"]):
                 payload["scraper"]["level"] = "entry_level"
             elif any(x in experience.lower() for x in ["5-", "senior", "lead"]):
@@ -43,11 +47,14 @@ def search_indeed(job_title: str, location: str = "", max_results: int = 20, cou
             "Content-Type": "application/json"
         }
 
+        print(f"DEBUG Indeed payload: {payload}")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
+        if response.status_code >= 400:
+            print(f"DEBUG Indeed HTTP {response.status_code}: {response.text[:500]}")
         response.raise_for_status()
         data = response.json()
         
-        print(f"DEBUG Indeed Response: {data}")
+        print(f"DEBUG Indeed Response state={data.get('state')} returnvalue_count={len(data.get('returnvalue',{}).get('data',[]))}")
 
         # Parse results from the BullMQ/Scraper response structure
         # The API returns: { "state": "completed", "returnvalue": { "data": [...] }, "data": { "scraper": {...} } }
