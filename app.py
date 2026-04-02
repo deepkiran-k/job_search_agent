@@ -27,12 +27,11 @@ def _load_lottie_url(url: str):
     return None
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
-_sidebar_state = "expanded" if st.session_state.get("step") in ["select_job", "analyze", "results"] else "collapsed"
 st.set_page_config(
     page_title="JobOrbit AI",
     page_icon="🟢",
     layout="wide",
-    initial_sidebar_state=_sidebar_state,
+    initial_sidebar_state="collapsed", # Let Streamlit manage this natively
 )
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-dummy-not-used-gemini-handles-llm")
@@ -460,16 +459,18 @@ if search_clicked:
     st.session_state.tailored_ats = None
     st.session_state.error = None
     
-    # CRITICAL FIX: Reset the step so the UI knows we are back at the beginning
     st.session_state.step = "search" 
     st.session_state.searching = True
     st.rerun()
 
 if st.session_state.searching:
     _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
+    
+    # 1. The context manager starts
     with st.status("Searching for jobs...", expanded=True) as status:
         if _lottie_search:
-            st_lottie(_lottie_search, height=120, key="search_anim")
+            # Removed the static key to prevent DuplicateWidgetID crashes on rerun
+            st_lottie(_lottie_search, height=120)
         
         try:
             status.update(label="Scanning job boards...", state="running")
@@ -523,11 +524,10 @@ if st.session_state.searching:
             st.session_state.error = f"Job search failed: {e}"
             st.session_state.step = "search"
             status.update(label="Search failed", state="error")
-        finally:
-            # Guarantee the searching flag is turned off, even if a crash occurs
-            st.session_state.searching = False
-            st.rerun()
-
+            
+    # 2. CRITICAL FIX: These execute completely OUTSIDE the `with st.status:` block
+    st.session_state.searching = False
+    st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SCREEN 1 — Hero Search
