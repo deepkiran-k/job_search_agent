@@ -1,6 +1,10 @@
-# config/settings.py - Updated for Gemini
+# core/settings.py - Updated for Gemini
 import os
+import warnings
 from dotenv import load_dotenv
+
+# Suppress known langchain-google-genai deprecation warning
+warnings.filterwarnings("ignore", message="Convert_system_message_to_human will be deprecated")
 
 # Load environment variables ONCE
 load_dotenv()

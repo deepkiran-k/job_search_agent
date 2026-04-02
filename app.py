@@ -460,7 +460,7 @@ if search_clicked:
     st.session_state.tailored_resume = ""
     st.session_state.tailored_ats = None
     st.session_state.error = None
-    st.session_state.step = "search"
+    # Don't change step here — keeps sidebar open during search
     st.session_state.searching = True
     st.rerun()
 
