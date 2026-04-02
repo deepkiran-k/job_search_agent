@@ -39,7 +39,7 @@ st.set_page_config(
 )
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-dummy-not-used-gemini-handles-llm")
-from config.settings import settings
+from core.settings import settings
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CSS

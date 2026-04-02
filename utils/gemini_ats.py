@@ -1,7 +1,7 @@
 # utils/gemini_ats.py - ATS SCORING: Deterministic scores + Gemini qualitative analysis
 import json
 import re
-from config.settings import settings
+from core.settings import settings
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.ats_scanner import ATSScanner
 

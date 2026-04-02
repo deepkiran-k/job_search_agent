@@ -1,7 +1,7 @@
 import os
 import json
 from langchain_core.messages import SystemMessage, HumanMessage
-from config.settings import settings
+from core.settings import settings
 
 class GeminiResumeBuilder:
     """Uses Gemini to actively rewrite and tailor a resume for a specific job,
