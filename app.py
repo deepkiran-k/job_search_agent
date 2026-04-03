@@ -7,7 +7,15 @@ Gemini is called ONLY twice: once for ATS scoring, once for cover letter.
 LOTTIE_SEARCH_URL  = "https://lottie.host/4db68bbd-31f6-4cd8-84eb-189571e55e79/2LGBAlBYkU.json"
 LOTTIE_ANALYZE_URL = "https://lottie.host/06e32af1-7e96-4ddd-8b97-57b44baed110/3rEDGfrBPu.json"
 
-import os, json
+import os, json, asyncio
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
 import streamlit as st
 from streamlit_lottie import st_lottie
 import requests as _requests
@@ -27,11 +35,12 @@ def _load_lottie_url(url: str):
     return None
 
 # ── Must be first Streamlit call ──────────────────────────────────────────────
+_sidebar_state = "expanded" if st.session_state.get("step") in ["select_job", "analyze", "results"] else "collapsed"
 st.set_page_config(
     page_title="JobOrbit AI",
     page_icon="🟢",
     layout="wide",
-    initial_sidebar_state="collapsed", # Let Streamlit manage this natively
+    initial_sidebar_state=_sidebar_state,
 )
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-dummy-not-used-gemini-handles-llm")
@@ -443,6 +452,7 @@ else:
     country_code     = st.session_state.get("country", "us")
     experience_input = st.session_state.experience
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SEARCH TRIGGER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -458,19 +468,19 @@ if search_clicked:
     st.session_state.tailored_resume = ""
     st.session_state.tailored_ats = None
     st.session_state.error = None
-    
-    st.session_state.step = "search" 
     st.session_state.searching = True
     st.rerun()
 
 if st.session_state.searching:
     _lottie_search = _load_lottie_url(LOTTIE_SEARCH_URL)
-    
-    # 1. The context manager starts
     with st.status("Searching for jobs...", expanded=True) as status:
         if _lottie_search:
-            # Removed the static key to prevent DuplicateWidgetID crashes on rerun
-            st_lottie(_lottie_search, height=120)
+            st_lottie(_lottie_search, height=120, key="search_anim")
+        
+        # Explicitly clear old results to speed up the rerun
+        st.session_state.jobs = []
+        st.session_state.selected_job = None
+        st.session_state.analysis = None
         
         try:
             status.update(label="Scanning job boards...", state="running")
@@ -483,6 +493,7 @@ if st.session_state.searching:
             q_en = st.session_state.get("global_english", True)
 
             # ── Tier 1: Adzuna + SerpAPI (primary, free/low-cost) ──
+            status.update(label="Scanning job boards...", state="running")
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 f_adzuna = executor.submit(search_adzuna, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
                 f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
@@ -493,7 +504,7 @@ if st.session_state.searching:
 
             # ── Tier 2: JSearch + Indeed (fallback, only when Tier 1 is empty) ──
             if not all_jobs:
-                status.update(label="Scanning fallback boards...", state="running")
+                status.update(label="Scanning job boards...", state="running")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                     f_jsearch = executor.submit(search_jsearch, job_title=q_title, location=q_loc, max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
                     f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
@@ -510,24 +521,21 @@ if st.session_state.searching:
                 if (url and url in seen_urls) or combo in seen_combos:
                     continue
                 seen_urls.add(url); seen_combos.add(combo); unique_jobs.append(job)
-            
             unique_jobs.sort(key=lambda x: x.get("posted_timestamp", 0), reverse=True)
             st.session_state.jobs = unique_jobs
             st.session_state.step = "select_job"
-            
             if not unique_jobs:
                 st.session_state.error = "No jobs found. Try a broader title or different location."
-                
             status.update(label=f"✓ Found {len(unique_jobs)} unique listings", state="complete")
-            
         except Exception as e:
             st.session_state.error = f"Job search failed: {e}"
             st.session_state.step = "search"
             status.update(label="Search failed", state="error")
-            
-    # 2. CRITICAL FIX: These execute completely OUTSIDE the `with st.status:` block
+    
+    # Reset searching flag ONLY after everything is done
     st.session_state.searching = False
     st.rerun()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SCREEN 1 — Hero Search
