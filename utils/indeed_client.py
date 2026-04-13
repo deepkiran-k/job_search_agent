@@ -1,6 +1,7 @@
 import os
 import requests
 from typing import List, Dict, Any
+from utils.exceptions import RateLimitError
 
 def search_indeed(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
     """
@@ -118,6 +119,10 @@ def search_indeed(job_title: str, location: str = "", max_results: int = 20, cou
         return formatted_jobs
 
     except Exception as e:
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+            raise RateLimitError(source="Indeed (RapidAPI)")
+        if "429" in str(e):
+            raise RateLimitError(source="Indeed (RapidAPI)")
         print(f"Error fetching from Indeed-Scraper: {e}")
         return []
 

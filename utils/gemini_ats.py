@@ -1,9 +1,29 @@
 # utils/gemini_ats.py - ATS SCORING: Deterministic scores + Gemini qualitative analysis
 import json
 import re
+import concurrent.futures
 from core.settings import settings
 from langchain_core.messages import SystemMessage, HumanMessage
 from utils.ats_scanner import ATSScanner
+from utils.exceptions import RateLimitError
+try:
+    from google.api_core.exceptions import ResourceExhausted as _ResourceExhausted
+except ImportError:
+    _ResourceExhausted = None
+
+_GEMINI_TIMEOUT = 25  # seconds — gives 3 retries ~10s total, aborts the rest
+
+
+def _invoke_llm(llm, messages):
+    """Call llm.invoke() in a thread with a hard timeout.
+    Raises RateLimitError if the call hangs beyond _GEMINI_TIMEOUT seconds
+    (covers cases where the tenacity patch doesn't fully stop retries)."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(llm.invoke, messages)
+        try:
+            return future.result(timeout=_GEMINI_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            raise RateLimitError(source="Google Gemini AI (timeout)")
 
 
 class GeminiATSScorer:
@@ -24,16 +44,35 @@ class GeminiATSScorer:
         2. Send scan results to Gemini for qualitative analysis (suggestions)
         3. Return merged result
         """
-        
         # Create default job description if none provided
         if not job_description:
             job_description = f"We are looking for a {job_title} with relevant experience in the field."
         
         # ── Step 1: Deterministic scan ────────────────────────────────────────
+        # This always runs and provides the core scores
         det = self.scanner.scan(resume_text, job_description, job_title, file_checks=file_checks)
         
         # ── Step 2: Gemini qualitative analysis ───────────────────────────────
-        gemini_analysis = self._get_gemini_analysis(resume_text, job_title, job_description, det, file_checks)
+        method = "Deterministic ATS Scan + Gemini AI Analysis"
+        ai_limit_hit = False
+        try:
+            gemini_analysis = self._get_gemini_analysis(resume_text, job_title, job_description, det, file_checks)
+        except RateLimitError as re:
+            print(f"Fallback triggered: {re.source} is rate limited.")
+            ai_limit_hit = True
+            gemini_analysis = self._qualitative_fallback(det)
+            gemini_analysis["analysis_summary"] = ""
+            method = "Deterministic ATS Scan (AI Fallback)"
+        except Exception as e:
+            print(f"Fallback triggered due to unexpected error: {e}")
+            ai_limit_hit = True
+            gemini_analysis = self._qualitative_fallback(det)
+            gemini_analysis["analysis_summary"] = (
+                "⚠️ **AI ANALYSIS UNAVAILABLE**\n\n"
+                "An error occurred during AI analysis. Your core ATS scores are still accurate "
+                "(calculated locally). Please try again in a moment."
+            )
+            method = "Deterministic ATS Scan (AI Fallback)"
         
         # ── Step 3: Merge into final result ───────────────────────────────────
         result = {
@@ -58,7 +97,7 @@ class GeminiATSScorer:
             "contact_info":       det["contact_info"],
             "length_feedback":    det["length_feedback"],
             
-            # Gemini qualitative analysis
+            # Gemini/Fallback qualitative analysis
             "strengths":            gemini_analysis.get("strengths", []),
             "weaknesses":           gemini_analysis.get("weaknesses", []),
             "specific_suggestions": gemini_analysis.get("specific_suggestions", []),
@@ -67,8 +106,9 @@ class GeminiATSScorer:
             "market_value":         gemini_analysis.get("market_value", ""),
             
             # Metadata
-            "analysis_method": "Deterministic ATS Scan + Gemini AI Analysis",
+            "analysis_method": method,
             "job_title": job_title,
+            "ai_limit_hit": ai_limit_hit,
         }
         
         return result
@@ -128,26 +168,30 @@ Respond with ONLY a valid JSON object matching this structure:
                 SystemMessage(content="You are an expert career coach. Return only valid JSON. Do not score — only advise."),
                 HumanMessage(content=prompt)
             ]
-            
-            response = self.llm.invoke(messages)
+
+            response = _invoke_llm(self.llm, messages)
             content = response.content.strip()
-            
+
             # Extract JSON
             json_match = re.search(r'\{[\s\S]*\}', content)
             if json_match:
                 content = json_match.group(0)
-            
+
             result = json.loads(content)
             return result
-            
+
         except Exception as e:
-            err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
-                print(f"Gemini API Quota Exceeded: {e}")
-                fallback = self._qualitative_fallback(det_results)
-                fallback["analysis_summary"] = "⚠️ Gemini API Quota Exceeded. Showing deterministic scan results only. AI qualitative analysis is temporarily unavailable."
-                return fallback
-            
+            # Check for quota/rate-limit errors:
+            # 1. First check if it's the explicit Google SDK exception type
+            # 2. Fall back to string matching for LangChain-wrapped errors
+            is_quota_error = (
+                (_ResourceExhausted is not None and isinstance(e, _ResourceExhausted))
+                or any(kw in str(e).lower() for kw in ("429", "quota", "resource_exhausted", "resourceexhausted", "rate_limit", "exceeded"))
+            )
+            if is_quota_error:
+                print(f"Gemini API Quota Exceeded (failing fast): {type(e).__name__}")
+                raise RateLimitError(source="Google Gemini AI")
+
             print(f"Gemini Qualitative Analysis Error: {e}")
             return self._qualitative_fallback(det_results)
     

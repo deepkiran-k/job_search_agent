@@ -3,6 +3,7 @@ import requests
 import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
+from utils.exceptions import RateLimitError
 
 load_dotenv()
 
@@ -231,6 +232,10 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
         return jobs
         
     except Exception as e:
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+            raise RateLimitError(source="JSearch (RapidAPI)")
+        if "429" in str(e):
+            raise RateLimitError(source="JSearch (RapidAPI)")
         print(f"JSearch failed: {e}")
         return []
 
@@ -268,6 +273,8 @@ def fetch_job_details(job_id: str, api_key: str) -> Optional[str]:
         return None
         
     except Exception as e:
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+            raise RateLimitError(source="JSearch Details (RapidAPI)")
         print(f"JSearch job-details failed for {job_id}: {e}")
         return None
 

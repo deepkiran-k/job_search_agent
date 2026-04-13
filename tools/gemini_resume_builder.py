@@ -125,5 +125,5 @@ Output ONLY raw markdown — no intro text, no explanations, no code fences."""
         except Exception as e:
             err_msg = str(e).lower()
             if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
-                return "⚠️ Gemini API Quota Exceeded. Auto-revision is temporarily unavailable. Please try again later or upgrade your Gemini plan."
+                return "⚠️ AI_LIMIT_HIT: Gemini API Quota Exceeded. Auto-revision is temporarily unavailable. Please try again later or upgrade your Gemini plan."
             return f"Error generating tailored resume: {e}"

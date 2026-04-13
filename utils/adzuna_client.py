@@ -4,6 +4,7 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
+from utils.exceptions import RateLimitError
 
 load_dotenv()
 
@@ -155,11 +156,15 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
         return jobs
         
     except requests.exceptions.HTTPError as he:
+        if he.response.status_code == 429:
+            raise RateLimitError(source="Adzuna")
         if he.response.status_code in [502, 503, 504]:
             print(f"Adzuna service is temporarily unavailable (HTTP {he.response.status_code}). Skipping.")
         else:
             print(f"Adzuna search failed with HTTP error: {he}")
         return []
+    except RateLimitError:
+        raise
     except Exception as e:
         print(f"Adzuna search failed unexpectedly: {e}")
         return []

@@ -1,8 +1,26 @@
 import json
+import re
+import concurrent.futures
 from datetime import datetime
 from typing import Any
 from utils.gemini_ats import GeminiATSScorer
 from langchain_core.messages import SystemMessage, HumanMessage
+try:
+    from google.api_core.exceptions import ResourceExhausted as _ResourceExhausted
+except ImportError:
+    _ResourceExhausted = None
+
+_GEMINI_TIMEOUT = 25  # seconds
+
+
+def _invoke_llm(llm, messages):
+    """Thread-based hard timeout around llm.invoke(). See gemini_ats.py."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(llm.invoke, messages)
+        try:
+            return future.result(timeout=_GEMINI_TIMEOUT)
+        except concurrent.futures.TimeoutError:
+            raise Exception("Gemini timeout: quota/rate-limit exceeded")
 
 class GeminiATSTool:
     """Tool wrapper for Gemini ATS scoring"""
@@ -126,7 +144,7 @@ Write the complete cover letter including the salutation and signature.
                 HumanMessage(content=prompt)
             ]
             
-            response = self.scorer.llm.invoke(messages)
+            response = _invoke_llm(self.scorer.llm, messages)
             cover_letter = response.content.strip()
             
             return json.dumps({
@@ -139,13 +157,20 @@ Write the complete cover letter including the salutation and signature.
             }, indent=2)
             
         except Exception as e:
-            err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
+            is_quota_error = (
+                (_ResourceExhausted is not None and isinstance(e, _ResourceExhausted))
+                or any(kw in str(e).lower() for kw in ("429", "quota", "resource_exhausted", "resourceexhausted", "rate_limit", "exceeded"))
+            )
+            if is_quota_error:
+                print(f"Gemini Cover Letter Quota Exceeded (failing fast): {type(e).__name__}")
                 return json.dumps({
+                    "success": False,
+                    "ai_limit_hit": True,
                     "error": "⚠️ Gemini API Quota Exceeded. Using template fallback for cover letter.",
                     "cover_letter": self._template_fallback(job_info, resume_text)
                 })
             return json.dumps({
+                "success": False,
                 "error": f"Cover letter generation failed: {str(e)}",
                 "cover_letter": self._template_fallback(job_info, resume_text)
             })

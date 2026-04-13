@@ -1,6 +1,7 @@
 import os
 import requests
 from typing import List, Dict, Any
+from utils.exceptions import RateLimitError
 
 def search_serpapi(job_title: str, location: str = "", max_results: int = 15, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
     """
@@ -30,6 +31,26 @@ def search_serpapi(job_title: str, location: str = "", max_results: int = 15, co
             "gl": country.lower(),
             "api_key": api_key
         }
+        
+        # Explicitly use the location parameter if provided, 
+        # or hint with the country if location is empty to avoid defaulting to US
+        if location.strip():
+            params["location"] = location.strip()
+        else:
+            # Simple mapping for common countries to help SerpApi/Google Jobs center the search
+            country_hints = {
+                "ae": "United Arab Emirates",
+                "sa": "Saudi Arabia",
+                "gb": "United Kingdom",
+                "us": "United States",
+                "ca": "Canada",
+                "au": "Australia",
+                "in": "India",
+                "de": "Germany",
+                "fr": "France",
+                "tr": "Turkey",
+            }
+            params["location"] = country_hints.get(country.lower(), country.upper())
 
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
@@ -89,5 +110,9 @@ def search_serpapi(job_title: str, location: str = "", max_results: int = 15, co
 
         return formatted_jobs[:max_results]
     except Exception as e:
+        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 429:
+            raise RateLimitError(source="Google Jobs (SerpApi)")
+        if "429" in str(e):
+            raise RateLimitError(source="Google Jobs (SerpApi)")
         print(f"Error fetching from GoogleJobs (SerpApi): {e}")
         return []

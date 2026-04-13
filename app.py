@@ -24,6 +24,7 @@ from utils.adzuna_client import search_adzuna
 from utils.rapidapi_client import search_jsearch, enrich_jsearch_jobs
 from utils.serpapi_client import search_serpapi
 from utils.indeed_client import search_indeed
+from utils.exceptions import RateLimitError
 
 def _load_lottie_url(url: str):
     try:
@@ -264,6 +265,7 @@ APP_DEFAULTS = {
     "file_checks": None,
     "saved_resume_text": "",
     "needs_enrichment": False,
+    "ai_limit_hit": False,
 }
 
 def reset_app_state():
@@ -346,7 +348,7 @@ def topbar(current_step: str):
         with c2:
             st.markdown(f'<div style="display:flex;justify-content:center;align-items:center;height:40px;">{pills_html}</div>', unsafe_allow_html=True)
         with c3:
-            if current_step != "search":
+            if current_step != "search" or st.session_state.error:
                 if st.button("🏠 Home", key=f"top_nav_{current_step}", use_container_width=True):
                     reset_app_state()
                     st.rerun()
@@ -485,6 +487,7 @@ if st.session_state.searching:
         try:
             status.update(label="Scanning job boards...", state="running")
             all_jobs = []
+            rate_limited_source = None
 
             q_title = st.session_state.job_title
             q_loc = st.session_state.location
@@ -499,8 +502,13 @@ if st.session_state.searching:
                 f_serpapi = executor.submit(search_serpapi, job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
 
                 for f in [f_adzuna, f_serpapi]:
-                    try: all_jobs.extend(f.result())
-                    except Exception as e: print(f"Tier 1 fetch failed: {e}")
+                    try:
+                        all_jobs.extend(f.result())
+                    except RateLimitError as re:
+                        rate_limited_source = re.source
+                        print(f"Tier 1 rate limited: {re.source}")
+                    except Exception as e:
+                        print(f"Tier 1 fetch failed: {e}")
 
             # ── Tier 2: JSearch + Indeed (fallback, only when Tier 1 is empty) ──
             if not all_jobs:
@@ -510,8 +518,13 @@ if st.session_state.searching:
                     f_indeed  = executor.submit(search_indeed,  job_title=q_title, location=q_loc, max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
 
                     for f in [f_jsearch, f_indeed]:
-                        try: all_jobs.extend(f.result())
-                        except Exception as e: print(f"Tier 2 fetch failed: {e}")
+                        try:
+                            all_jobs.extend(f.result())
+                        except RateLimitError as re:
+                            rate_limited_source = re.source
+                            print(f"Tier 2 rate limited: {re.source}")
+                        except Exception as e:
+                            print(f"Tier 2 fetch failed: {e}")
 
             status.update(label=f"Found {len(all_jobs)} listings — deduplicating...", state="running")
             seen_urls, seen_combos, unique_jobs = set(), set(), []
@@ -524,9 +537,20 @@ if st.session_state.searching:
             unique_jobs.sort(key=lambda x: x.get("posted_timestamp", 0), reverse=True)
             st.session_state.jobs = unique_jobs
             st.session_state.step = "select_job"
+
+            # ── Final error state determination ──
             if not unique_jobs:
-                st.session_state.error = "No jobs found. Try a broader title or different location."
+                if rate_limited_source:
+                    # If NO jobs found and we hit a limit, trigger the warning
+                    raise RateLimitError(source=rate_limited_source)
+                elif not st.session_state.error:
+                    st.session_state.error = "No jobs found. Try a broader title or different location."
+            
             status.update(label=f"✓ Found {len(unique_jobs)} unique listings", state="complete")
+        except RateLimitError as re:
+            st.session_state.error = f"RATE_LIMIT:{re.source}"
+            st.session_state.step = "search"
+            status.update(label="API Limit Reached", state="error")
         except Exception as e:
             st.session_state.error = f"Job search failed: {e}"
             st.session_state.step = "search"
@@ -617,7 +641,10 @@ if st.session_state.step == "search" and not st.session_state.error:
 
 elif st.session_state.step == "search" and st.session_state.error:
     topbar("search")
-    st.error(f"❌ {st.session_state.error}")
+    if st.session_state.error.startswith("RATE_LIMIT:"):
+        st.error("⚠️ **API Rate Limit Exceeded**: We've reached the search limit for this region. Please try again tomorrow or search in a different country!")
+    else:
+        st.error(f"❌ {st.session_state.error}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -628,7 +655,10 @@ if st.session_state.step == "select_job":
     jobs = st.session_state.jobs
 
     if st.session_state.error:
-        st.error(f"❌ {st.session_state.error}")
+        if st.session_state.error.startswith("RATE_LIMIT:"):
+            st.error("⚠️ **API Rate Limit Exceeded**: We've reached the search limit for this region. Please try again tomorrow or search in a different country!")
+        else:
+            st.error(f"❌ {st.session_state.error}")
     elif not jobs:
         st.warning("⚠️ No jobs found. Try a broader title or different location.")
         if st.button("← New Search", use_container_width=True):
@@ -802,14 +832,19 @@ if st.session_state.step == "analyze":
                     st.session_state.cover_letter = ""
                     st.session_state.tailored_resume = ""
                     st.session_state.tailored_ats = None
+                    st.session_state.ai_limit_hit = False  # reset for this run
 
                     if st.session_state.analyze_ats:
                         status.update(label="Scoring your resume…", state="running")
                         scorer = GeminiATSScorer()
-                        st.session_state.analysis = scorer.analyze_resume(
+                        analysis_res = scorer.analyze_resume(
                             resume_text=final_resume, job_title=job_title_val,
                             job_description=job_desc, file_checks=file_checks)
-                        status.update(label="Resume scored ✓", state="running")
+                        st.session_state.analysis = analysis_res
+                        if analysis_res.get("ai_limit_hit"):
+                            st.session_state.ai_limit_hit = True
+                            st.toast("⚠️ AI Quota reached. Using Fallback analysis.", icon="🛑")
+                        status.update(label="Resume scored ✓" if not st.session_state.ai_limit_hit else "Resume scored (Safe Mode) ⚠", state="running")
 
                     if st.session_state.analyze_cover:
                         status.update(label="Writing your cover letter…", state="running")
@@ -819,23 +854,38 @@ if st.session_state.step == "analyze":
                             resume_text=final_resume,
                             ats_analysis=json.dumps(st.session_state.get("analysis",{}))
                         )
-                        try:    st.session_state.cover_letter = json.loads(cover_raw).get("cover_letter", cover_raw)
-                        except: st.session_state.cover_letter = cover_raw
+                        try:
+                            cover_data = json.loads(cover_raw)
+                            st.session_state.cover_letter = cover_data.get("cover_letter", cover_raw)
+                            if cover_data.get("ai_limit_hit"):
+                                st.session_state.ai_limit_hit = True
+                                st.toast("⚠️ AI Quota reached. Using Cover Letter template.", icon="🛑")
+                        except: 
+                            st.session_state.cover_letter = cover_raw
+                        
+                        status.update(label="Cover letter written ✓" if not st.session_state.ai_limit_hit else "Using Cover Letter template (AI Limited) ⚠", state="running")
 
                     if st.session_state.analyze_tailor:
                         status.update(label="Rewriting your resume…", state="running")
                         from tools.gemini_resume_builder import GeminiResumeBuilder
                         from utils.ats_scanner import ATSScanner
                         builder = GeminiResumeBuilder()
-                        st.session_state.tailored_resume = builder.build_resume(
+                        tailored_res = builder.build_resume(
                             resume_text=final_resume,
                             job_info={"title":job_title_val,"company":jb.get("company",""),"description":job_desc},
                             ats_results=st.session_state.get("analysis"),
                         )
-                        if st.session_state.tailored_resume and not st.session_state.tailored_resume.startswith("Error"):
+                        st.session_state.tailored_resume = tailored_res
+                        if "AI_LIMIT_HIT:" in tailored_res:
+                            st.session_state.ai_limit_hit = True
+                            st.toast("⚠️ AI Quota reached. Using rule-based resume revision.", icon="🛑")
+                        
+                        status.update(label="Resume rewritten ✓" if "AI_LIMIT_HIT:" not in tailored_res else "Resume revised (Rule-based) ⚠", state="running")
+                        
+                        if tailored_res and not tailored_res.startswith("Error") and "AI_LIMIT_HIT:" not in tailored_res:
                             det_scanner = ATSScanner()
                             st.session_state.tailored_ats = det_scanner.scan(
-                                resume_text=st.session_state.tailored_resume,
+                                resume_text=tailored_res,
                                 job_description=job_desc, job_title=job_title_val,
                             )
 
@@ -843,6 +893,10 @@ if st.session_state.step == "analyze":
                     st.session_state.error = None
                     status.update(label="Analysis complete ✓", state="complete")
 
+                except RateLimitError as re:
+                    st.session_state.error = f"RATE_LIMIT:{re.source}"
+                    st.session_state.step  = "analyze"
+                    status.update(label="API Limit Reached", state="error")
                 except Exception as e:
                     st.session_state.error = str(e)
                     st.session_state.step  = "results"
@@ -863,7 +917,11 @@ if st.session_state.step == "results":
     job          = st.session_state.selected_job or {}
 
     if st.session_state.error:
-        st.error(f"Analysis failed: {st.session_state.error}")
+        if st.session_state.error.startswith("RATE_LIMIT:"):
+            st.error("⚠️ **API Rate Limit Exceeded**: We've reached the analysis limit for today. Please try again tomorrow!")
+        else:
+            st.error(f"Analysis failed: {st.session_state.error}")
+        
         if st.button("← Try Again"):
             st.session_state.step  = "analyze"
             st.session_state.error = None
@@ -884,6 +942,18 @@ if st.session_state.step == "results":
                 interview_prob     = analysis.get("interview_probability", 0)
                 market_value       = analysis.get("market_value", "")
                 analysis_summary   = analysis.get("analysis_summary", "")
+                ai_limit_hit       = st.session_state.get("ai_limit_hit", False)
+
+                if ai_limit_hit:
+                    st.markdown("""
+                    <div class="card card-accent" style="border-color:var(--amber);background:rgba(217,119,6,0.05);margin-bottom:1.5rem;">
+                      <div style="color:var(--amber);font-weight:700;font-size:0.85rem;">⚠️ AI Limit Reached (Safe Mode)</div>
+                      <div style="font-size:0.82rem;color:var(--text);margin-top:4px;line-height:1.5;">
+                        We've reached the AI daily quota. Qualitative reasoning and narrative summaries are temporarily unavailable. 
+                        However, your <b>core ATS scores and keyword analysis below match your resume perfectly</b> as they are calculated locally.
+                      </div>
+                    </div>""", unsafe_allow_html=True)
+
                 missing_keywords   = analysis.get("missing_keywords", [])
                 matched_keywords   = analysis.get("matched_keywords", [])
                 strengths          = analysis.get("strengths", [])
@@ -979,7 +1049,7 @@ if st.session_state.step == "results":
                         st.markdown('<div>' + "".join(f'<span class="tag tag-blue">{a}</span>' for a in achievements_found) + '</div>', unsafe_allow_html=True)
 
                 # ── AI Summary ────────────────────────────────────────────────
-                if analysis_summary:
+                if analysis_summary and not ai_limit_hit:
                     st.markdown(f"""
                     <div class="card card-accent" style="margin-top:1rem;">
                       <div class="eyebrow">AI Summary</div>
@@ -1021,14 +1091,24 @@ if st.session_state.step == "results":
             elif not cover_letter:
                 st.warning("No cover letter was generated.")
             else:
-                st.markdown('<div class="eyebrow" style="margin-bottom:0.75rem;">Generated cover letter</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="cover-letter">{cover_letter}</div>', unsafe_allow_html=True)
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.download_button(
-                    label="Download cover letter (.txt)", data=cover_letter,
-                    file_name=f"cover_letter_{job.get('title','job').replace(' ','_')}.txt",
-                    mime="text/plain",
-                )
+                if st.session_state.get("ai_limit_hit"):
+                    st.markdown("""
+                    <div class="card card-accent" style="border-color:var(--amber);background:rgba(217,119,6,0.05);margin-bottom:1rem;">
+                      <div style="color:var(--amber);font-weight:700;font-size:0.85rem;">⚠️ AI Limit Reached</div>
+                      <div style="font-size:0.82rem;color:var(--text);margin-top:4px;line-height:1.5;">
+                        AI-powered cover letter generation is currently unavailable due to daily quota limits. 
+                        Please try again later for a fully tailored letter.
+                      </div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown('<div class="eyebrow" style="margin-bottom:0.75rem;">Generated cover letter</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="cover-letter">{cover_letter}</div>', unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.download_button(
+                        label="Download cover letter (.txt)", data=cover_letter,
+                        file_name=f"cover_letter_{job.get('title','job').replace(' ','_')}.txt",
+                        mime="text/plain",
+                    )
 
         # ── TAB 3: Tailored Resume ────────────────────────────────────────────
         with tab3:
@@ -1040,7 +1120,16 @@ if st.session_state.step == "results":
                 orig_score    = int(analysis.get("ats_score", 0)) if analysis else None
                 revised_score = int(tailored_ats.get("overall_score", 0)) if tailored_ats else None
 
-                if revised_score is not None:
+                if st.session_state.get("ai_limit_hit"):
+                    st.markdown("""
+                    <div class="card card-accent" style="border-color:var(--amber);background:rgba(217,119,6,0.05);margin-bottom:1rem;">
+                      <div style="color:var(--amber);font-weight:700;font-size:0.85rem;">⚠️ AI Limit Reached</div>
+                      <div style="font-size:0.82rem;color:var(--text);margin-top:4px;line-height:1.5;">
+                        Auto-Revision is currently unavailable due to AI daily quota limits. 
+                        Please try again later to generate a tailored version of your resume.
+                      </div>
+                    </div>""", unsafe_allow_html=True)
+                elif revised_score is not None:
                     delta       = (revised_score - orig_score) if orig_score is not None else None
                     delta_color = "#16A34A" if (delta is not None and delta >= 0) else "#DC2626"
                     delta_icon  = "🎉" if (delta is not None and delta >= 5) else ("✓" if delta is not None and delta >= 0 else "⚠")
@@ -1062,8 +1151,11 @@ if st.session_state.step == "results":
                         score_bar(orig_score, "Original ATS score")
                     st.markdown("</div></div>", unsafe_allow_html=True)
 
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown(tailored)
+                if not st.session_state.get("ai_limit_hit"):
+                    st.markdown("<hr>", unsafe_allow_html=True)
+                    # Clean error prefix from display if present
+                    display_tailored = tailored.replace("⚠️ AI_LIMIT_HIT: ", "")
+                    st.markdown(display_tailored)
                 st.markdown("<br>", unsafe_allow_html=True)
                 dl1, dl2 = st.columns(2)
                 with dl1:
