@@ -7,9 +7,9 @@ python-dotenv==1.0.0
 requests
 
 # LLM - Google Gemini
-langchain==0.1.10
+langchain>=0.2.0
 langchain-core
-langchain-community==0.0.25
+langchain-community>=0.2.0
 langchain-google-genai
 
 # Document parsing (for future resume upload support)
@@ -30,3 +30,7 @@ pydantic-core==2.14.1
 
 # PDF generation
 fpdf2
+
+# Testing
+pytest>=7.4.0
+pytest-mock>=3.12.0
