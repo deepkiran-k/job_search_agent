@@ -69,25 +69,37 @@ def handle_search_trigger():
                     except Exception as e:
                         print(f"Tier 1 fetch failed: {e}")
 
-            # ── Tier 2: JSearch + Indeed (fallback) ──────────────────────────
+            # ── Tier 2a: JSearch ─────────────────────────────────────────────
             if not all_jobs:
-                status.update(label="Scanning job boards...", state="running")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                    f_jsearch = executor.submit(
-                        search_jsearch, job_title=q_title, location=q_loc,
-                        max_results=20, experience=q_exp, country=q_ctry, global_english=q_en)
-                    f_indeed  = executor.submit(
-                        search_indeed,  job_title=q_title, location=q_loc,
-                        max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+                status.update(label="Scanning job boards (JSearch)...", state="running")
+                try:
+                    all_jobs.extend(
+                        search_jsearch(
+                            job_title=q_title, location=q_loc,
+                            max_results=20, experience=q_exp, country=q_ctry, global_english=q_en
+                        )
+                    )
+                except RateLimitError as re:
+                    rate_limited_source = re.source
+                    print(f"Tier 2a rate limited: {re.source}")
+                except Exception as e:
+                    print(f"Tier 2a fetch failed: {e}")
 
-                    for f in [f_jsearch, f_indeed]:
-                        try:
-                            all_jobs.extend(f.result())
-                        except RateLimitError as re:
-                            rate_limited_source = re.source
-                            print(f"Tier 2 rate limited: {re.source}")
-                        except Exception as e:
-                            print(f"Tier 2 fetch failed: {e}")
+            # ── Tier 2b: Indeed (last resort) ────────────────────────────────
+            if not all_jobs:
+                status.update(label="Scanning job boards (Indeed)...", state="running")
+                try:
+                    all_jobs.extend(
+                        search_indeed(
+                            job_title=q_title, location=q_loc,
+                            max_results=20, country=q_ctry, experience=q_exp, global_english=q_en
+                        )
+                    )
+                except RateLimitError as re:
+                    rate_limited_source = re.source
+                    print(f"Tier 2b rate limited: {re.source}")
+                except Exception as e:
+                    print(f"Tier 2b fetch failed: {e}")
 
             # ── Deduplicate & sort ────────────────────────────────────────────
             status.update(
