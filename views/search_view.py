@@ -25,6 +25,9 @@ def handle_search_trigger():
     Tier 1: Adzuna + SerpAPI (primary, fee/low-cost).
     Tier 2: JSearch + Indeed (fallback, only when Tier 1 finds nothing).
 
+    In "company" mode, an effective query string is built before hitting
+    any client, and a post-search filter removes off-company noise.
+
     Results are deduplicated by URL and title+company combo, then sorted
     by posted_timestamp descending. Sets session state and calls st.rerun().
     """
@@ -42,25 +45,71 @@ def handle_search_trigger():
 
         try:
             status.update(label="Scanning job boards...", state="running")
-            all_jobs          = []
+            all_jobs            = []
             rate_limited_source = None
 
-            q_title = st.session_state.job_title
-            q_loc   = st.session_state.location
-            q_ctry  = st.session_state.get("country", "us")
-            q_exp   = st.session_state.experience
-            q_en    = st.session_state.get("global_english", True)
+            q_title   = st.session_state.job_title
+            q_loc     = st.session_state.location
+            q_ctry    = st.session_state.get("country", "us")
+            q_exp     = st.session_state.experience
+            q_en      = st.session_state.get("global_english", True)
+            q_mode    = st.session_state.get("search_mode", "role")
+            q_company = st.session_state.get("company_name", "").strip()
 
-            # ── Tier 1: Adzuna + SerpAPI ─────────────────────────────────────
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                f_adzuna  = executor.submit(
-                    search_adzuna,  job_title=q_title, location=q_loc,
-                    max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
-                f_serpapi = executor.submit(
-                    search_serpapi, job_title=q_title, location=q_loc,
-                    max_results=20, country=q_ctry, experience=q_exp, global_english=q_en)
+            # ── Build effective query for company mode ────────────────────────
+            # "<role> at <company>" gives all sources a meaningful query even
+            # when their native company filter has low recall on its own.
+            # The company= kwarg below adds a second precision layer.
+            if q_mode == "company" and q_company:
+                role_hint       = q_title.strip()
+                effective_title = (
+                    f"{role_hint} at {q_company}" if role_hint
+                    else f"{q_company} jobs"
+                )
+                company_filter = q_company
+                status.update(
+                    label=f"Scanning job boards for roles at {q_company}...",
+                    state="running",
+                )
+            else:
+                effective_title = q_title
+                company_filter  = ""
 
-                for f in [f_adzuna, f_serpapi]:
+            # ── Tier 1 ────────────────────────────────────────────────────────────
+            # Role mode  : Adzuna + SerpAPI run concurrently.
+            # Company mode: Adzuna + SerpAPI + JSearch all run concurrently.
+            #   - SerpAPI (Google Jobs) & JSearch are the most precise sources
+            #     for company searches. Running them in parallel (not sequentially)
+            #     means we collect results from each before rate limits block one.
+            #   - Adzuna is included as a safety net because it does not rate-limit
+            #     as aggressively; the post-filter cleans any text-match noise.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
+
+                # Adzuna: always run (role mode AND company mode safety net)
+                futures.append(executor.submit(
+                    search_adzuna,
+                    job_title=effective_title, location=q_loc,
+                    max_results=20, country=q_ctry, experience=q_exp,
+                    global_english=q_en, company=company_filter,
+                ))
+                # SerpAPI (Google Jobs): always run
+                futures.append(executor.submit(
+                    search_serpapi,
+                    job_title=effective_title, location=q_loc,
+                    max_results=20, country=q_ctry, experience=q_exp,
+                    global_english=q_en, company=company_filter,
+                ))
+                # JSearch: run in Tier 1 for company mode (has real employer= filter)
+                if q_mode == "company":
+                    futures.append(executor.submit(
+                        search_jsearch,
+                        job_title=effective_title, location=q_loc,
+                        max_results=20, experience=q_exp, country=q_ctry,
+                        global_english=q_en, company=company_filter,
+                    ))
+
+                for f in futures:
                     try:
                         all_jobs.extend(f.result())
                     except RateLimitError as re:
@@ -69,14 +118,15 @@ def handle_search_trigger():
                     except Exception as e:
                         print(f"Tier 1 fetch failed: {e}")
 
-            # ── Tier 2a: JSearch ─────────────────────────────────────────────
-            if not all_jobs:
+            # ── Tier 2a: JSearch (role mode only — already Tier 1 for company mode)
+            if not all_jobs and q_mode != "company":
                 status.update(label="Scanning job boards (JSearch)...", state="running")
                 try:
                     all_jobs.extend(
                         search_jsearch(
-                            job_title=q_title, location=q_loc,
-                            max_results=20, experience=q_exp, country=q_ctry, global_english=q_en
+                            job_title=effective_title, location=q_loc,
+                            max_results=20, experience=q_exp, country=q_ctry,
+                            global_english=q_en, company=company_filter,
                         )
                     )
                 except RateLimitError as re:
@@ -85,14 +135,18 @@ def handle_search_trigger():
                 except Exception as e:
                     print(f"Tier 2a fetch failed: {e}")
 
-            # ── Tier 2b: Indeed (last resort) ────────────────────────────────
-            if not all_jobs:
+            # ── Tier 2b: Indeed (role mode only) ────────────────────────────────
+            # Indeed is excluded from company mode: its companyName scraper param
+            # is not honoured by the API (confirmed from logs — it returns random
+            # unrelated jobs regardless of the companyName value set).
+            if not all_jobs and q_mode != "company":
                 status.update(label="Scanning job boards (Indeed)...", state="running")
                 try:
                     all_jobs.extend(
                         search_indeed(
-                            job_title=q_title, location=q_loc,
-                            max_results=20, country=q_ctry, experience=q_exp, global_english=q_en
+                            job_title=effective_title, location=q_loc,
+                            max_results=20, country=q_ctry, experience=q_exp,
+                            global_english=q_en,
                         )
                     )
                 except RateLimitError as re:
@@ -100,6 +154,31 @@ def handle_search_trigger():
                     print(f"Tier 2b rate limited: {re.source}")
                 except Exception as e:
                     print(f"Tier 2b fetch failed: {e}")
+
+            # ── Post-search company filter (safety net) ───────────────────────
+            # Only filters on the `company` field — checking the description
+            # causes false positives because job descriptions routinely mention
+            # competitor names, tools, and map/cloud URLs
+            # (e.g. Marriott jobs contain Google Maps links, WNS jobs say
+            # "Google Cloud"). The company field is the only reliable signal.
+            if q_mode == "company" and company_filter:
+                status.update(
+                    label=f"Filtering results for {q_company}...",
+                    state="running",
+                )
+                company_lower = company_filter.lower()
+                filtered = []
+                for j in all_jobs:
+                    job_company = j.get("company", "").lower()
+                    # Accept if the searched company name is a word-aligned
+                    # substring of the job's company field.
+                    # e.g. "google" matches "Google LLC", "Google India"
+                    # but NOT "WNS Global Services" or "Marriott".
+                    if company_lower in job_company:
+                        filtered.append(j)
+                    else:
+                        print(f"[company-filter] dropped: '{j.get('company','')}' — '{j.get('title','')}' ({j.get('source','')})")
+                all_jobs = filtered
 
             # ── Deduplicate & sort ────────────────────────────────────────────
             status.update(
@@ -124,12 +203,18 @@ def handle_search_trigger():
                 if rate_limited_source:
                     raise RateLimitError(source=rate_limited_source)
                 elif not st.session_state.error:
-                    st.session_state.error = (
-                        "No jobs found. Try a broader title or different location."
-                    )
+                    if q_mode == "company" and q_company:
+                        st.session_state.error = (
+                            f"No jobs found at **{q_company}**. "
+                            "Try leaving the role field empty, or check the company name spelling."
+                        )
+                    else:
+                        st.session_state.error = (
+                            "No jobs found. Try a broader title or different location."
+                        )
 
             status.update(
-                label=f"✓ Found {len(unique_jobs)} unique listings",
+                label=f"\u2713 Found {len(unique_jobs)} unique listings",
                 state="complete",
             )
 
@@ -154,11 +239,11 @@ def render():
     if st.session_state.error:
         if st.session_state.error.startswith("RATE_LIMIT:"):
             st.error(
-                "⚠️ **API Rate Limit Exceeded**: We've reached the search limit for "
+                "\u26a0\ufe0f **API Rate Limit Exceeded**: We've reached the search limit for "
                 "this region. Please try again tomorrow or search in a different country!"
             )
         else:
-            st.error(f"❌ {st.session_state.error}")
+            st.error(f"\u274c {st.session_state.error}")
         return
 
     st.markdown("""
@@ -174,11 +259,60 @@ def render():
 
     _, col_c, _ = st.columns([0.15, 5, 0.15])
     with col_c:
-        _hero_title = st.text_input(
-            "What role are you looking for?",
-            value=st.session_state.job_title,
-            placeholder="e.g. Data Scientist, Product Manager",
+
+        # ── Search mode toggle ────────────────────────────────────────────────
+        current_mode = st.session_state.get("search_mode", "role")
+
+        st.markdown(
+            '<p style="font-size:0.78rem;font-weight:600;letter-spacing:0.05em;'
+            'text-transform:uppercase;color:var(--muted);margin-bottom:0.4rem;">'
+            'Search by</p>',
+            unsafe_allow_html=True,
         )
+        mode_col1, mode_col2, _ = st.columns([1, 1, 2])
+        with mode_col1:
+            if st.button(
+                "\U0001f50d\u2002By Role",
+                key="mode_role_btn",
+                type="primary" if current_mode == "role" else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.search_mode = "role"
+                st.rerun()
+        with mode_col2:
+            if st.button(
+                "\U0001f3e2\u2002By Company",
+                key="mode_company_btn",
+                type="primary" if current_mode == "company" else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.search_mode = "company"
+                st.rerun()
+
+        st.markdown('<div style="margin-bottom:0.35rem;"></div>', unsafe_allow_html=True)
+
+        # ── Form fields based on mode ─────────────────────────────────────────
+        if current_mode == "company":
+            # Company mode: company name is primary, role is optional hint
+            _hero_company_name = st.text_input(
+                "\U0001f3e2 Company Name",
+                value=st.session_state.get("company_name", ""),
+                placeholder="e.g. Google, Microsoft, BASF, McKinsey...",
+            )
+            _hero_title = st.text_input(
+                "Role / Keyword  *(optional — leave blank for all open roles)*",
+                value=st.session_state.job_title,
+                placeholder="e.g. Software Engineer, Data Analyst",
+            )
+        else:
+            # Role mode: original form, untouched
+            _hero_company_name = ""
+            _hero_title = st.text_input(
+                "What role are you looking for?",
+                value=st.session_state.job_title,
+                placeholder="e.g. Data Scientist, Product Manager",
+            )
+
         _c1, _c2, _c3 = st.columns([1, 1, 0.75])
         with _c1:
             _hero_location = st.text_input(
@@ -210,26 +344,41 @@ def render():
                 "Experience", _exp_opts, index=_exp_idx, key="hero_exp",
             )
 
-        if st.button("Search Jobs", type="primary", use_container_width=True,
+        # ── Search button: label reflects mode ───────────────────────────────
+        if current_mode == "company":
+            cname_preview = _hero_company_name.strip() or "Company"
+            btn_label = f"\U0001f50d Search {cname_preview} Jobs"
+        else:
+            btn_label = "Search Jobs"
+
+        if st.button(btn_label, type="primary", use_container_width=True,
                      key="hero_search_btn"):
+
+            # Validate: company mode requires a company name
+            if current_mode == "company" and not _hero_company_name.strip():
+                st.error("\u26a0\ufe0f Please enter a company name to search.")
+                st.stop()
+
             exp_map = {
                 "0-1 yrs": "0-1 years", "1-3 yrs": "1-3 years",
                 "3-5 yrs": "3-5 years", "5-10 yrs": "5-10 years",
                 "10+ yrs": "10+ years",
             }
-            st.session_state.job_title      = _hero_title
-            st.session_state.location       = _hero_location
-            st.session_state.country        = _hero_country
-            st.session_state.experience     = exp_map.get(_hero_exp, "3-5 years")
-            st.session_state.jobs           = []
-            st.session_state.selected_job   = None
-            st.session_state.analysis       = None
-            st.session_state.cover_letter   = ""
+            st.session_state.job_title       = _hero_title
+            st.session_state.company_name    = _hero_company_name.strip()
+            st.session_state.search_mode     = current_mode
+            st.session_state.location        = _hero_location
+            st.session_state.country         = _hero_country
+            st.session_state.experience      = exp_map.get(_hero_exp, "3-5 years")
+            st.session_state.jobs            = []
+            st.session_state.selected_job    = None
+            st.session_state.analysis        = None
+            st.session_state.cover_letter    = ""
             st.session_state.tailored_resume = ""
-            st.session_state.tailored_ats   = None
-            st.session_state.error          = None
-            st.session_state.step           = "search"
-            st.session_state.searching      = True
+            st.session_state.tailored_ats    = None
+            st.session_state.error           = None
+            st.session_state.step            = "search"
+            st.session_state.searching       = True
             st.rerun()
 
     _, col_hiw, _ = st.columns([0.15, 5, 0.15])
@@ -237,20 +386,20 @@ def render():
         st.markdown("""
         <div class="hiw-grid">
           <div class="hiw-card">
-            <div class="hiw-num">01 — Search</div>
+            <div class="hiw-num">01 &mdash; Search</div>
             <div class="hiw-title">Real listings, live</div>
             <div class="hiw-desc">We scan multiple job boards simultaneously for up-to-date listings.</div>
           </div>
           <div class="hiw-card">
-            <div class="hiw-num">02 — Select</div>
+            <div class="hiw-num">02 &mdash; Select</div>
             <div class="hiw-title">Pick your match</div>
             <div class="hiw-desc">Your resume is analysed against that specific job description.</div>
           </div>
           <div class="hiw-card">
-            <div class="hiw-num">03 — Analyse</div>
+            <div class="hiw-num">03 &mdash; Analyse</div>
             <div class="hiw-title">AI does the work</div>
             <div class="hiw-desc">ATS score, keyword gaps, tailored resume &amp; cover letter.</div>
           </div>
         </div>
-        <div style="text-align:center;margin-top:2rem;font-size:0.72rem;color:var(--muted2);letter-spacing:0.08em;text-transform:uppercase;">✦ Powered by AI ✦</div>
+        <div style="text-align:center;margin-top:2rem;font-size:0.72rem;color:var(--muted2);letter-spacing:0.08em;text-transform:uppercase;">\u2756 Powered by AI \u2756</div>
         """, unsafe_allow_html=True)

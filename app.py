@@ -53,8 +53,49 @@ if st.session_state.step != "search":
         st.markdown("## 🔍 Filters")
         st.markdown('<hr style="margin:0.4rem 0 1rem;">', unsafe_allow_html=True)
 
-        job_title_input  = st.text_input("Job Title",  value=st.session_state.job_title,
-                                         placeholder="e.g. Data Scientist")
+        # ── Search mode toggle ───────────────────────────────────────────────────
+        _current_mode = st.session_state.get("search_mode", "role")
+        sb_mode_col1, sb_mode_col2 = st.columns(2)
+        with sb_mode_col1:
+            if st.button(
+                "🔍 By Role",
+                key="sb_mode_role",
+                type="primary" if _current_mode == "role" else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.search_mode = "role"
+                st.rerun()
+        with sb_mode_col2:
+            if st.button(
+                "🏢 By Co.",
+                key="sb_mode_company",
+                type="primary" if _current_mode == "company" else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.search_mode = "company"
+                st.rerun()
+
+        st.markdown('<div style="margin-bottom:0.25rem;"></div>', unsafe_allow_html=True)
+
+        # ── Mode-specific inputs ───────────────────────────────────────────────
+        if _current_mode == "company":
+            company_name_input = st.text_input(
+                "Company Name",
+                value=st.session_state.get("company_name", ""),
+                placeholder="e.g. Google, BASF...",
+            )
+            job_title_input = st.text_input(
+                "Role / Keyword *(optional)*",
+                value=st.session_state.job_title,
+                placeholder="e.g. Software Engineer",
+            )
+        else:
+            company_name_input = ""
+            job_title_input = st.text_input(
+                "Job Title", value=st.session_state.job_title,
+                placeholder="e.g. Data Scientist",
+            )
+
         location_input   = st.text_input("Location",   value=st.session_state.location,
                                          placeholder="e.g. London, Remote")
         _c_options = list(COUNTRY_OPTIONS.keys())
@@ -110,14 +151,16 @@ if st.session_state.step != "search":
         )
 else:
     # Provide variable bindings for the search-again trigger below
-    job_title_input  = st.session_state.job_title
-    location_input   = st.session_state.location
-    country_code     = st.session_state.get("country", "us")
-    experience_input = st.session_state.experience
+    job_title_input    = st.session_state.job_title
+    company_name_input = st.session_state.get("company_name", "")
+    location_input     = st.session_state.location
+    country_code       = st.session_state.get("country", "us")
+    experience_input   = st.session_state.experience
 
 # ── Search-again trigger from sidebar ────────────────────────────────────────
 if search_clicked:
     st.session_state.job_title       = job_title_input
+    st.session_state.company_name    = company_name_input
     st.session_state.location        = location_input
     st.session_state.experience      = experience_input
     st.session_state.country         = country_code

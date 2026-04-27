@@ -3,10 +3,23 @@ import requests
 from typing import List, Dict, Any
 from utils.exceptions import RateLimitError
 
-def search_serpapi(job_title: str, location: str = "", max_results: int = 15, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
+def search_serpapi(
+    job_title: str,
+    location: str = "",
+    max_results: int = 15,
+    country: str = "us",
+    experience: str = "",
+    global_english: bool = True,
+    company: str = "",
+) -> List[Dict[str, Any]]:
     """
     Search Google Jobs using SerpApi.
     SerpApi usually returns the full job descriptions, so we don't need secondary enrichment.
+
+    Args:
+        company: Optional company name. When set the query already contains
+                 "<role> at <company>" (built by search_view), so this kwarg
+                 is accepted for interface consistency and future use.
     """
     api_key = os.getenv("SERPAPI_KEY")
     if not api_key:

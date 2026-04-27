@@ -20,17 +20,27 @@ COUNTRY_NAMES = {
     "colombia", "philippines", "malaysia",
 }
 
-def search_adzuna(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
+def search_adzuna(
+    job_title: str,
+    location: str = "",
+    max_results: int = 20,
+    country: str = "us",
+    experience: str = "",
+    global_english: bool = True,
+    company: str = "",
+) -> List[Dict[str, Any]]:
     """
     Search Adzuna API for job listings.
-    
+
     Args:
-        job_title: Job title to search for
-        location: Location (city, state, or "remote")
+        job_title:   Job title to search for
+        location:    Location (city, state, or "remote")
         max_results: Maximum number of results to return (max 50)
-        country: Country code (e.g., 'us', 'gb', 'in', 'ca')
-        experience: Experience level required (e.g. '0-1 years')
-        
+        country:     Country code (e.g., 'us', 'gb', 'in', 'ca')
+        experience:  Experience level required (e.g. '0-1 years')
+        company:     Optional company/employer name — uses Adzuna's what_and
+                     param to restrict results to that employer.
+
     Returns:
         List of job dictionaries
     """
@@ -71,6 +81,10 @@ def search_adzuna(job_title: str, location: str = "", max_results: int = 20, cou
             "content-type": "application/json",
             "sort_by": "date",
         }
+        # Note: Adzuna has no true employer filter. The `what_and` param matches
+        # the company name anywhere in the job text (descriptions, titles), which
+        # causes false positives. Company filtering is handled by search_view's
+        # post-search filter on the company field instead.
 
         
         # Handle remote search logic

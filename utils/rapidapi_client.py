@@ -38,17 +38,27 @@ TURKISH_MAPPING = {
     "designer": "Designer OR Tasarımcı",
 }
 
-def search_jsearch(job_title: str, location: str = "", max_results: int = 20, experience: str = "", country: str = "us", global_english: bool = True) -> List[Dict[str, Any]]:
+def search_jsearch(
+    job_title: str,
+    location: str = "",
+    max_results: int = 20,
+    experience: str = "",
+    country: str = "us",
+    global_english: bool = True,
+    company: str = "",
+) -> List[Dict[str, Any]]:
     """
     Search JSearch (Google Jobs via RapidAPI) for fresh job listings.
-    
+
     Args:
-        job_title: Job title to search for
-        location: Location (city, state, or "remote") — optional
+        job_title:   Job title to search for
+        location:    Location (city, state, or "remote") — optional
         max_results: Maximum number of results to return
-        experience: Experience level required (e.g. '0-1 years')
-        country: Country code (e.g. 'us', 'in') — used as fallback when location is blank
-        
+        experience:  Experience level required (e.g. '0-1 years')
+        country:     Country code (e.g. 'us', 'in') — used as fallback when location is blank
+        company:     Optional employer name — passed as the `employer` filter
+                     in the JSearch querystring for more precise company filtering.
+
     Returns:
         List of job dictionaries matching the standard internal format
     """
@@ -105,8 +115,13 @@ def search_jsearch(job_title: str, location: str = "", max_results: int = 20, ex
             "page": "1",
             "num_pages": str(max(1, fetch_limit // 10)),
             "country": country.lower(),
-            "date_posted": "all"
+            "date_posted": "all",
         }
+
+        # Company / employer filter — JSearch supports restricting results
+        # to a specific employer name via the `employer` querystring param
+        if company.strip():
+            querystring["employer"] = company.strip()
 
         
         # Add remote filter specifically if requested
