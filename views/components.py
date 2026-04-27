@@ -59,6 +59,9 @@ APP_DEFAULTS = {
     "saved_resume_text": "",
     "needs_enrichment": False,
     "ai_limit_hit": False,
+    # ── Company search ────────────────────────────────────────────────────────
+    "search_mode": "role",    # "role" | "company"  — defaults to existing behaviour
+    "company_name": "",       # company filter used when search_mode == "company"
 }
 
 

@@ -3,10 +3,21 @@ import requests
 from typing import List, Dict, Any
 from utils.exceptions import RateLimitError
 
-def search_indeed(job_title: str, location: str = "", max_results: int = 20, country: str = "us", experience: str = "", global_english: bool = True) -> List[Dict[str, Any]]:
+def search_indeed(
+    job_title: str,
+    location: str = "",
+    max_results: int = 20,
+    country: str = "us",
+    experience: str = "",
+    global_english: bool = True,
+    company: str = "",
+) -> List[Dict[str, Any]]:
     """
-    Search Indeed jobs via the NEW indeed-scraper-api RapidAPI.
-    This replaces the old indeed12 client.
+    Search Indeed jobs via the indeed-scraper-api RapidAPI.
+
+    Args:
+        company: Optional employer/company name. When set, passed as
+                 companyName in the scraper payload to restrict results.
     """
     api_key = os.getenv("RAPIDAPI_KEY")
     if not api_key:
@@ -28,9 +39,14 @@ def search_indeed(job_title: str, location: str = "", max_results: int = 20, cou
                 "location": location or "",
                 "country": country.lower(),
                 "sort": "date",
-                "fromDays": "7" if is_major else "14"
+                "fromDays": "7" if is_major else "14",
             }
         }
+
+        # Company filter — pass companyName when searching by company
+        # to restrict Indeed results to a specific employer
+        if company.strip():
+            payload["scraper"]["companyName"] = company.strip()
         
         # Only apply level filter on major markets — smaller markets
         # return 0 results with level filtering due to sparse inventory

@@ -35,11 +35,38 @@ def render():
 
     hcol1, _ = st.columns([3, 1])
     with hcol1:
-        st.markdown(f"""
-        <div style="margin-bottom:0.75rem;">
-          <div style="font-size:1.05rem;font-weight:800;color:var(--text);">{len(jobs)} listings found</div>
-          <div style="font-size:0.82rem;color:var(--muted);margin-top:2px;">Select a role — your resume will be matched to that exact job description.</div>
-        </div>""", unsafe_allow_html=True)
+        # ── Company mode header banner ────────────────────────────────────────
+        q_mode    = st.session_state.get("search_mode", "role")
+        q_company = st.session_state.get("company_name", "").strip()
+
+        if q_mode == "company" and q_company:
+            safe_company = escape(q_company)
+            st.markdown(f"""
+            <div style="
+              display:flex;align-items:center;gap:0.75rem;
+              background:var(--surf2);border:1px solid var(--border2);
+              border-left:4px solid var(--green);
+              border-radius:var(--r);padding:0.85rem 1.25rem;
+              margin-bottom:1rem;
+            ">
+              <span style="font-size:1.4rem;">&#127970;</span>
+              <div>
+                <div style="font-size:1rem;font-weight:800;color:var(--text);">
+                  Showing {len(jobs)} role{'s' if len(jobs) != 1 else ''} at
+                  <span style="color:var(--green2);">{safe_company}</span>
+                </div>
+                <div style="font-size:0.8rem;color:var(--muted);margin-top:2px;">
+                  Select a role — your resume will be matched to that exact job description.
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="margin-bottom:0.75rem;">
+              <div style="font-size:1.05rem;font-weight:800;color:var(--text);">{len(jobs)} listings found</div>
+              <div style="font-size:0.82rem;color:var(--muted);margin-top:2px;">Select a role — your resume will be matched to that exact job description.</div>
+            </div>""", unsafe_allow_html=True)
 
     for i, job in enumerate(jobs):
         # ── Escape all API-sourced strings before HTML injection ──────────────
