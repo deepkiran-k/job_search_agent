@@ -63,7 +63,7 @@ class ResumePDF(FPDF):
                 self.set_text_color(60, 60, 60)
                 x = self.get_x()
                 self.cell(6, 5, "-", new_x="END")  # bullet char
-                self.multi_cell(self.w - x - 24, 5, text)
+                self.multi_cell(self.w - x - 24, 5, text, markdown=True)
                 self.ln(1)
 
             # Regular text (bold handling)
@@ -71,21 +71,11 @@ class ResumePDF(FPDF):
                 text = self._clean(stripped)
                 self.set_font(self._font_family, "", 10)
                 self.set_text_color(60, 60, 60)
-                self.multi_cell(0, 5, text)
+                self.multi_cell(0, 5, text, markdown=True)
                 self.ln(1)
 
     def _clean(self, text: str) -> str:
-        """Strip markdown formatting and sanitize Unicode for Helvetica."""
-        # Bold
-        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-        text = re.sub(r'__(.+?)__', r'\1', text)
-        # Italic
-        text = re.sub(r'\*(.+?)\*', r'\1', text)
-        text = re.sub(r'_(.+?)_', r'\1', text)
-        # Inline code
-        text = re.sub(r'`(.+?)`', r'\1', text)
-        # Links [text](url) → text
-        text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+        """Sanitize Unicode for Helvetica, while preserving Markdown for fpdf2."""
         # Sanitize Unicode chars that Helvetica/Latin-1 can't encode
         _unicode_map = {
             '\u2022': '-', '\u2023': '-', '\u25e6': '-', '\u2043': '-',  # bullets
