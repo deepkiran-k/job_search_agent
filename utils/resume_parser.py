@@ -11,8 +11,9 @@ def parse_resume_file(uploaded_file) -> dict:
     """
     Parse an uploaded file (Streamlit UploadedFile) and return:
     {
-        "text": extracted plain text,
+        "text": extracted plain text (with newly-discovered embedded URLs appended),
         "file_type": "pdf" | "docx" | "txt",
+        "embedded_links": ["https://...", ...],   # URLs found in annotations/rels
         "file_checks": {
             "page_count": int,
             "has_images": bool,
@@ -36,6 +37,7 @@ def parse_resume_file(uploaded_file) -> dict:
         return {
             "text": text,
             "file_type": "txt",
+            "embedded_links": [],
             "file_checks": {
                 "page_count": 1,
                 "has_images": False,
@@ -49,6 +51,7 @@ def parse_resume_file(uploaded_file) -> dict:
         return {
             "text": "",
             "file_type": "unknown",
+            "embedded_links": [],
             "file_checks": {
                 "page_count": 0,
                 "has_images": False,
@@ -61,7 +64,7 @@ def parse_resume_file(uploaded_file) -> dict:
 
 
 def _parse_pdf(file_bytes: bytes) -> dict:
-    """Extract text and metadata from a PDF file."""
+    """Extract text, metadata, and embedded hyperlinks from a PDF file."""
     from PyPDF2 import PdfReader
     
     issues = []
@@ -69,6 +72,7 @@ def _parse_pdf(file_bytes: bytes) -> dict:
     has_images = False
     font_names = set()
     all_text = []
+    embedded_links = set()  # Collect unique hyperlink URLs from annotations
     
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
@@ -82,6 +86,38 @@ def _parse_pdf(file_bytes: bytes) -> dict:
             # Extract text
             page_text = page.extract_text() or ""
             all_text.append(page_text)
+            
+            # ── Extract embedded hyperlinks from annotations ───────────────────
+            # /Annots holds the list of annotation objects per page.
+            # Each /Link annotation can contain /A -> /URI for external URLs.
+            # Both the annot list and individual annot objects can be IndirectObjects
+            # that need .get_object() to resolve — same defensive pattern as /Resources.
+            try:
+                annots = page.get("/Annots")
+                if annots and hasattr(annots, "get_object"):
+                    annots = annots.get_object()
+                if isinstance(annots, list):
+                    for annot_ref in annots:
+                        try:
+                            annot = annot_ref
+                            if hasattr(annot, "get_object"):
+                                annot = annot.get_object()
+                            if not hasattr(annot, "get"):
+                                continue
+                            # Only process Link annotations
+                            if annot.get("/Subtype") != "/Link":
+                                continue
+                            action = annot.get("/A")
+                            if action and hasattr(action, "get_object"):
+                                action = action.get_object()
+                            if action and hasattr(action, "get"):
+                                uri = action.get("/URI")
+                                if uri:
+                                    embedded_links.add(str(uri))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             
             # Check for images and fonts — wrapped in try/except because
             # PyPDF2 resources can be IndirectObject references that need resolving
@@ -127,6 +163,13 @@ def _parse_pdf(file_bytes: bytes) -> dict:
         
         combined_text = "\n".join(all_text).strip()
         
+        # ── Append embedded links not already visible in plain text ───────────
+        # Only add URLs that aren't already in the extracted text to avoid
+        # double-counting and inflating the word count score.
+        new_links = [url for url in sorted(embedded_links) if url not in combined_text]
+        if new_links:
+            combined_text = combined_text + "\n" + " ".join(new_links)
+        
         # Check if PDF is machine-readable
         is_readable = len(combined_text.split()) > 20
         if not is_readable:
@@ -157,6 +200,7 @@ def _parse_pdf(file_bytes: bytes) -> dict:
         return {
             "text": combined_text,
             "file_type": "pdf",
+            "embedded_links": sorted(embedded_links),  # full list for UI/display
             "file_checks": {
                 "page_count": page_count,
                 "has_images": has_images,
@@ -171,6 +215,7 @@ def _parse_pdf(file_bytes: bytes) -> dict:
         return {
             "text": "",
             "file_type": "pdf",
+            "embedded_links": [],
             "file_checks": {
                 "page_count": 0,
                 "has_images": False,
@@ -183,13 +228,14 @@ def _parse_pdf(file_bytes: bytes) -> dict:
 
 
 def _parse_docx(file_bytes: bytes) -> dict:
-    """Extract text and metadata from a DOCX file."""
+    """Extract text, metadata, and embedded hyperlinks from a DOCX file."""
     from docx import Document
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
     
     issues = []
     has_images = False
     has_tables = False
+    embedded_links = set()  # Collect unique hyperlink URLs from relationships
     
     try:
         doc = Document(io.BytesIO(file_bytes))
@@ -206,11 +252,50 @@ def _parse_docx(file_bytes: bytes) -> dict:
             has_tables = True
             issues.append(f"Document contains {len(doc.tables)} table(s) — many ATS systems scramble table content")
         
-        # Check for images
+        # ── Extract embedded hyperlinks (two-pronged approach) ────────────────
+        #
+        # Approach 1 (primary): Walk the document XML and find every
+        # <w:hyperlink r:id="rIdN"> element. Resolve the rId through
+        # doc.part.rels to get the actual URL.
+        # This is the most reliable method because:
+        #   - python-docx marks external hyperlinks with is_external=True
+        #   - For external rels, the URL lives in rel._target (not target_part)
+        #   - target_ref is a property that works for both internal and external
+        W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        for hl_elem in doc.element.body.iter(f"{{{W_NS}}}hyperlink"):
+            try:
+                r_id = hl_elem.get(f"{{{R_NS}}}id")
+                if r_id and r_id in doc.part.rels:
+                    rel = doc.part.rels[r_id]
+                    if rel.is_external:
+                        # For external rels, target_ref returns the URL string
+                        url = rel.target_ref
+                        if url and url.startswith(("http", "https", "www", "mailto")):
+                            embedded_links.add(url)
+            except Exception:
+                pass
+
+        # Approach 2 (fallback): Scan all rels directly — catches any hyperlinks
+        # that appear in headers, footers, or text boxes not reached by body.iter()
         for rel in doc.part.rels.values():
-            if "image" in rel.reltype:
-                has_images = True
-                break
+            try:
+                if "hyperlink" in rel.reltype.lower() and rel.is_external:
+                    url = rel.target_ref
+                    if url and url.startswith(("http", "https", "www", "mailto")):
+                        embedded_links.add(url)
+            except Exception:
+                pass
+        
+        # Check for images (separate pass — image check was previously sharing
+        # the same loop, now we need the dedicated hyperlink loop above)
+        for rel in doc.part.rels.values():
+            try:
+                if "image" in rel.reltype.lower():
+                    has_images = True
+                    break
+            except Exception:
+                pass
         
         if has_images:
             issues.append("Document contains embedded images — ATS cannot read text inside images")
@@ -241,6 +326,12 @@ def _parse_docx(file_bytes: bytes) -> dict:
                         break
         
         combined_text = "\n".join(paragraphs)
+        
+        # ── Append embedded links not already visible in plain text ───────────
+        new_links = [url for url in sorted(embedded_links) if url not in combined_text]
+        if new_links:
+            combined_text = combined_text + "\n" + " ".join(new_links)
+        
         is_readable = len(combined_text.split()) > 20
         
         if not is_readable:
@@ -255,6 +346,7 @@ def _parse_docx(file_bytes: bytes) -> dict:
         return {
             "text": combined_text,
             "file_type": "docx",
+            "embedded_links": sorted(embedded_links),  # full list for UI/display
             "file_checks": {
                 "page_count": estimated_pages,
                 "has_images": has_images,
@@ -269,6 +361,7 @@ def _parse_docx(file_bytes: bytes) -> dict:
         return {
             "text": "",
             "file_type": "docx",
+            "embedded_links": [],
             "file_checks": {
                 "page_count": 0,
                 "has_images": False,

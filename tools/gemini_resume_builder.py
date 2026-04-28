@@ -10,7 +10,8 @@ class GeminiResumeBuilder:
     def __init__(self):
         self.llm = settings.get_gemini_llm()
         
-    def build_resume(self, resume_text: str, job_info: dict, ats_results: dict = None) -> str:
+    def build_resume(self, resume_text: str, job_info: dict, ats_results: dict = None,
+                     embedded_links: list = None) -> str:
         """
         Rewrites the given resume to be tailored to the job description, 
         yielding a highly ATS-optimized markdown resume.
@@ -63,7 +64,14 @@ class GeminiResumeBuilder:
                     "from the context but do NOT fabricate specific numbers that weren't implied."
                 )
             if not contact.get("linkedin"):
-                guidance_parts.append("Add a LinkedIn profile URL placeholder: linkedin.com/in/yourprofile")
+                # Prefer the real extracted URL over a generic placeholder
+                linkedin_url = next(
+                    (u.strip() for u in (embedded_links or []) if "linkedin.com" in u.lower()), None
+                )
+                if linkedin_url:
+                    guidance_parts.append(f"Use this LinkedIn URL in the contact header: {linkedin_url}")
+                else:
+                    guidance_parts.append("Add a LinkedIn profile URL placeholder: linkedin.com/in/yourprofile")
             
             if guidance_parts:
                 ats_guidance = (
@@ -73,6 +81,31 @@ class GeminiResumeBuilder:
                     "\n".join(f"\n{i+1}. {g}" for i, g in enumerate(guidance_parts))
                 )
         
+        # ── Build contact links block from embedded_links ─────────────────────
+        # This is injected into the prompt regardless of ATS results, so the AI
+        # always knows the real LinkedIn / GitHub URLs and uses them in the header
+        # rather than writing placeholder text like "LinkedIn | GitHub".
+        # Note: target_ref in python-docx can include trailing whitespace — strip().
+        contact_links_block = ""
+        if embedded_links:
+            link_lines = []
+            for url in embedded_links:
+                url = url.strip()
+                if not url:
+                    continue
+                url_lower = url.lower()
+                if "linkedin.com" in url_lower:
+                    link_lines.append(f"LinkedIn: {url}")
+                elif "github.com" in url_lower:
+                    link_lines.append(f"GitHub: {url}")
+                elif url_lower.startswith(("http", "www")):
+                    link_lines.append(f"Portfolio/Website: {url}")
+            if link_lines:
+                contact_links_block = (
+                    "\n\nCANDIDATE PROFILE LINKS — use these EXACT URLs in the contact "
+                    "header line. Do NOT use placeholder text:\n" + "\n".join(link_lines)
+                )
+
         prompt = f"""You are an elite resume writer and ATS strategist. Rewrite the resume below for this specific role. The result will be re-scored by an ATS engine.
 
 JOB: {job_title} at {job_company}
@@ -81,7 +114,7 @@ JOB DESCRIPTION:
 
 RESUME:
 {resume_text}
-{ats_guidance}
+{ats_guidance}{contact_links_block}
 
 REWRITE RULES:
 
@@ -98,7 +131,7 @@ REWRITE RULES:
 
 **EDUCATION / PROJECTS / CERTIFICATIONS**: Include all. Add relevant certifications commonly expected for this role (mark as "In Progress" or "Add if applicable" if not in the original).
 
-**FORMAT**: Use `#` for name, `##` for section headers, `-` for bullets (no special chars). Bold job titles and companies. Include email, phone, LinkedIn. Aim for 400-700 words.
+**FORMAT**: Use `#` for name, `##` for section headers, `-` for bullets (no special chars). Bold job titles and companies. Include email, phone, and any profile links from CANDIDATE PROFILE LINKS above. Aim for 400-700 words.
 
 Section order: SUMMARY → SKILLS → EXPERIENCE → EDUCATION → PROJECTS → CERTIFICATIONS
 
