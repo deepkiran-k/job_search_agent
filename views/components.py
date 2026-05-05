@@ -96,11 +96,11 @@ def profile_avatar() -> None:
       <div class="profile-avatar" title="{email}">{initial}</div>
       <div class="profile-dropdown" id="profileDrop">
         <div class="profile-email-label">⚪️&nbsp;{email}</div>
-        <a class="pmenu-item" href="?action=history&_uid={_u}&_ue={_e}">
+        <a class="pmenu-item" href="?action=history&_uid={_u}&_ue={_e}" target="_self">
           <span style="font-size:1rem;">&#128203;</span> My History
         </a>
         <hr class="pmenu-sep">
-        <a class="pmenu-item danger" href="?action=logout&_uid={_u}&_ue={_e}">
+        <a class="pmenu-item danger" href="?action=logout&_uid={_u}&_ue={_e}" target="_self">
           <span style="font-size:1rem;">&#128682;</span> Logout
         </a>
       </div>
