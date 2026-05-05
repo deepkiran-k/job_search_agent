@@ -36,15 +36,75 @@ from core.settings import settings  # noqa: E402
 
 # ── CSS + shared component helpers ───────────────────────────────────────────
 from views.components import (  # noqa: E402
-    inject_css, APP_DEFAULTS, COUNTRY_OPTIONS, reset_app_state,
+    inject_css, APP_DEFAULTS, COUNTRY_OPTIONS, reset_app_state, profile_avatar,
 )
 
 inject_css()
+
+# ── DB bootstrap (idempotent, runs once per server process) ─────────────────
+from utils.db import init_db  # noqa: E402
+init_db()
 
 # ── Session state initialisation ─────────────────────────────────────────────
 for key, default in APP_DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+# ── Restore session from URL params (avatar dropdown navigation) ──────────────
+# The profile dropdown uses href="?action=X&_uid=...&_ue=..." so that the
+# user_id survives the browser navigation that would otherwise wipe session state.
+if not st.session_state.get("user_id"):
+    import urllib.parse as _urlparse
+    if hasattr(st, "query_params"):
+        _raw_uid = st.query_params.get("_uid", "")
+        _raw_ue  = st.query_params.get("_ue",  "")
+    else:
+        _qp_exp  = st.experimental_get_query_params()
+        _raw_uid = (_qp_exp.get("_uid") or [""])[0]
+        _raw_ue  = (_qp_exp.get("_ue")  or [""])[0]
+    if _raw_uid:
+        st.session_state.user_id    = _urlparse.unquote(_raw_uid)
+        st.session_state.user_email = _urlparse.unquote(_raw_ue)
+
+# ── Auth gate ─────────────────────────────────────────────────────────────────
+if not st.session_state.get("user_id"):
+    from views.auth_view import render as _auth_render  # noqa: E402
+    _auth_render()
+    st.stop()  # Everything below is protected
+
+# ── Profile avatar query-param actions ────────────────────────────────────────
+if hasattr(st, "query_params"):
+    _action = st.query_params.get("action")
+else:
+    _params = st.experimental_get_query_params()
+    _action = (_params.get("action") or [None])[0]
+
+if _action == "history":
+    if hasattr(st, "query_params"):
+        st.query_params.clear()
+    else:
+        st.experimental_set_query_params()
+    st.session_state.step = "history"
+elif _action == "logout":
+    if hasattr(st, "query_params"):
+        st.query_params.clear()
+    else:
+        st.experimental_set_query_params()
+    st.session_state.user_id    = None
+    st.session_state.user_email = ""
+    st.rerun()
+elif not _action:
+    # Clean up any leftover _uid/_ue params from the URL after restore
+    if hasattr(st, "query_params") and st.query_params.get("_uid"):
+        st.query_params.clear()
+    elif not hasattr(st, "query_params"):
+        _qp2 = st.experimental_get_query_params()
+        if _qp2.get("_uid"):
+            st.experimental_set_query_params()
+
+# ── Profile avatar (fixed-position, visible on every page) ────────────────────
+profile_avatar()
+
 
 # ── Sidebar (rendered on all steps except the initial hero search) ────────────
 search_clicked = False
@@ -125,6 +185,7 @@ if st.session_state.step != "search":
 
         st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
 
+        # ── Status ─────────────────────────────────────────────────────────────────
         status_map = {
             "select_job": ("Pick a job to analyse", "#16A34A"),
             "analyze":    ("Upload your resume",    "#D97706"),
@@ -191,3 +252,6 @@ elif step == "analyze":
     _analyze_render()
 elif step == "results":
     _results_render()
+elif step == "history":
+    from views.history_view import render as _history_render  # noqa: E402
+    _history_render()

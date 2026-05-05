@@ -260,6 +260,29 @@ def render():
                     st.session_state.error = None
                     status.update(label="Analysis complete ✓", state="complete")
 
+                    # ── Save analysis to history (non-blocking) ───────────────
+                    try:
+                        from utils.history_manager import save_analysis
+                        _uid = st.session_state.get("user_id")
+                        if _uid:
+                            save_analysis(
+                                user_id=_uid,
+                                job=jb,
+                                search_params={
+                                    "job_title":   st.session_state.job_title,
+                                    "company":     st.session_state.get("company_name", ""),
+                                    "location":    st.session_state.location,
+                                    "country":     st.session_state.get("country", ""),
+                                    "experience":  st.session_state.experience,
+                                    "search_mode": st.session_state.get("search_mode", "role"),
+                                },
+                                analysis=st.session_state.analysis or {},
+                                cover_letter=st.session_state.cover_letter or "",
+                                tailored_resume=st.session_state.tailored_resume or "",
+                            )
+                    except Exception:
+                        pass  # history must never crash the analysis
+
                 except RateLimitError as re:
                     st.session_state.error = f"RATE_LIMIT:{re.source}"
                     st.session_state.step  = "analyze"
