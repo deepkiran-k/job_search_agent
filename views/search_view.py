@@ -199,6 +199,26 @@ def handle_search_trigger():
             st.session_state.jobs = unique_jobs
             st.session_state.step = "select_job"
 
+            # ── Save search to history (non-blocking) ─────────────────────────
+            try:
+                from utils.history_manager import save_search
+                _uid = st.session_state.get("user_id")
+                if _uid:
+                    save_search(
+                        user_id=_uid,
+                        params={
+                            "job_title":    q_title,
+                            "company_name": q_company,
+                            "location":     q_loc,
+                            "country":      q_ctry,
+                            "experience":   q_exp,
+                            "search_mode":  q_mode,
+                        },
+                        results_count=len(unique_jobs),
+                    )
+            except Exception:
+                pass  # history must never crash the search
+
             if not unique_jobs:
                 if rate_limited_source:
                     raise RateLimitError(source=rate_limited_source)
