@@ -19,16 +19,17 @@ except RuntimeError:
 import streamlit as st
 
 # ── Page config — must be the very first Streamlit call ──────────────────────
-_sidebar_state = (
-    "expanded"
-    if st.session_state.get("step") in ["select_job", "analyze", "results"]
-    else "collapsed"
-)
 st.set_page_config(
     page_title="JobOrbit AI",
     page_icon="🟢",
     layout="wide",
-    initial_sidebar_state=_sidebar_state,
+    initial_sidebar_state="expanded",
+)
+
+_sidebar_state = (
+    "expanded"
+    if st.session_state.get("step") in ["select_job", "analyze", "results"]
+    else "collapsed"
 )
 
 # ── Core settings (after set_page_config) ────────────────────────────────────
