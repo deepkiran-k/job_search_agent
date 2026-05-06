@@ -2,7 +2,7 @@
 
 An AI-powered job search and resume optimization platform. Search real jobs from multiple sources, get ATS compatibility scoring, AI-tailored resumes, and cover letters — all in one flow.
 
-**[Live Demo →](https://jobsearchagent-sfxexdwkkhbostxjp8buvz.streamlit.app)**
+**[Live Demo →](https://job-orbit.streamlit.app/)**
 
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11-blue?style=flat&logo=python)
