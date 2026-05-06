@@ -62,50 +62,16 @@ APP_DEFAULTS = {
     # ── Company search ────────────────────────────────────────────────────────
     "search_mode": "role",    # "role" | "company"  — defaults to existing behaviour
     "company_name": "",       # company filter used when search_mode == "company"
-    # ── Auth ─────────────────────────────────────────────────────────────────
-    "user_id":    None,        # UUID string — set on login, cleared on logout
-    "user_email": "",          # displayed in sidebar
 }
 
 
 def reset_app_state():
-    """Reset session state keys to their default values, preserving user auth."""
+    """Reset session state keys to their default values."""
     for key, val in APP_DEFAULTS.items():
-        if key in ("user_id", "user_email"):
-            continue  # Do not wipe auth state on 'Home' navigation
         st.session_state[key] = val
 
 
-def profile_avatar() -> None:
-    """
-    Render a fixed-position circular profile avatar in the top-right corner.
-    Clicking it toggles a dropdown with 'My History' and 'Logout' links.
-    Navigation is driven by ?action= query params read in app.py.
-    """
-    email   = st.session_state.get("user_email", "")
-    initial = email[0].upper() if email else "U"
-    uid     = st.session_state.get("user_id", "") or ""
 
-    # Embed uid + email in the URL so session can be restored after page reload
-    import urllib.parse
-    _e = urllib.parse.quote(email)
-    _u = urllib.parse.quote(uid)
-
-    st.markdown(f"""
-    <div class="profile-wrap" id="profileWrap">
-      <div class="profile-avatar" title="{email}">{initial}</div>
-      <div class="profile-dropdown" id="profileDrop">
-        <div class="profile-email-label">⚪️&nbsp;{email}</div>
-        <a class="pmenu-item" href="?action=history&_uid={_u}&_ue={_e}" target="_self">
-          <span style="font-size:1rem;">&#128203;</span> My History
-        </a>
-        <hr class="pmenu-sep">
-        <a class="pmenu-item danger" href="?action=logout&_uid={_u}&_ue={_e}" target="_self">
-          <span style="font-size:1rem;">&#128682;</span> Logout
-        </a>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 def set_analyze_step(job: dict):
@@ -417,55 +383,6 @@ h1, h2, h3 { font-family: 'Plus Jakarta Sans', sans-serif !important; font-weigh
 
 /* ── HR ── */
 hr { border: none !important; border-top: 1px solid var(--border) !important; margin: 1.25rem 0 !important; }
-
-/* ── Auth card ── */
-.auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 2rem; margin-bottom: 1rem; }
-
-/* ── Score chips ── */
-.chip-green { display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:700;color:var(--green2);background:rgba(22,163,74,0.12);border:1px solid rgba(22,163,74,0.3); }
-.chip-amber { display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3); }
-.chip-red   { display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.75rem;font-weight:700;color:var(--red);background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3); }
-
-/* ── Profile avatar dropdown ── */
-.profile-wrap { position:fixed; top:70px; right:30px; z-index:99999; font-family:'Plus Jakarta Sans',sans-serif; }
-.profile-avatar {
-    width:38px; height:38px; border-radius:50%;
-    background:linear-gradient(135deg,#16A34A,#22C55E);
-    color:white; font-weight:800; font-size:1rem; letter-spacing:-0.01em;
-    display:flex; align-items:center; justify-content:center;
-    cursor:pointer; user-select:none;
-    border:2px solid rgba(255,255,255,0.15);
-    box-shadow:0 4px 14px rgba(22,163,74,0.35);
-    transition:transform 0.18s, box-shadow 0.18s;
-}
-.profile-avatar:hover { transform:scale(1.1); box-shadow:0 6px 18px rgba(22,163,74,0.45); }
-.profile-dropdown {
-    position:absolute; top:46px; right:0;
-    background:#121814;
-    border:1px solid #26332A;
-    border-radius:13px; padding:8px;
-    min-width:210px; display:none;
-    box-shadow:0 12px 40px rgba(0,0,0,0.5);
-    animation:fadeIn 0.15s ease;
-}
-.profile-wrap:hover .profile-dropdown { display:block; }
-@keyframes fadeIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
-.profile-email-label {
-    font-size:0.72rem; color:#607267;
-    padding:6px 12px 10px; margin-bottom:4px;
-    border-bottom:1px solid #26332A;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.pmenu-item {
-    display:flex; align-items:center; gap:9px;
-    padding:10px 13px; border-radius:9px;
-    color:#EAFAEF; font-size:0.88rem; font-weight:600;
-    text-decoration:none; transition:background 0.15s, color 0.15s;
-    cursor:pointer;
-}
-.pmenu-item:hover { background:#1A221C; color:#4ADE80; text-decoration:none; }
-.pmenu-item.danger:hover { background:rgba(239,68,68,0.1); color:#F87171; }
-.pmenu-sep { border:none; border-top:1px solid #26332A; margin:6px 0; }
 
 /* ── Hide Streamlit chrome ── */
 #MainMenu, footer { visibility: hidden !important; }
