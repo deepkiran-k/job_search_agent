@@ -296,7 +296,7 @@ def render():
             st.info("Auto-Revise Resume was not requested. Go back and enable that option.")
         else:
             orig_score    = int(analysis.get("ats_score", 0)) if analysis else None
-            revised_score = int(tailored_ats.get("overall_score", 0)) if tailored_ats else None
+            revised_score = int(tailored_ats.get("ats_score", tailored_ats.get("overall_score", 0))) if tailored_ats else None
 
             if st.session_state.get("ai_limit_hit"):
                 st.markdown("""
@@ -311,9 +311,9 @@ def render():
                 # ── Gather all metrics ─────────────────────────────────────────
                 orig_kw_match     = int(analysis.get("keyword_match", 0))        if analysis     else None
                 orig_interview    = int(analysis.get("interview_probability", 0)) if analysis     else None
-                revised_kw_match  = int(tailored_ats.get("keyword_score", 0))    if tailored_ats else None
-                # interview_probability is a Gemini field; ATSScanner estimates it
-                revised_interview = int(max(20, tailored_ats.get("keyword_score", 0) - 10)) if tailored_ats else None
+                revised_kw_match  = int(tailored_ats.get("keyword_match", tailored_ats.get("keyword_score", 0)))    if tailored_ats else None
+                # interview_probability is an AI-evaluated field via GeminiATSScorer
+                revised_interview = int(tailored_ats.get("interview_probability", max(20, tailored_ats.get("keyword_score", 0) - 10))) if tailored_ats else None
 
                 def _delta_badge(orig, revised):
                     """Return HTML for a coloured delta pill."""
@@ -448,7 +448,7 @@ def render():
                             st.session_state.cover_letter = raw
                     if gen_tailor:
                         from tools.gemini_resume_builder import GeminiResumeBuilder
-                        from utils.ats_scanner import ATSScanner
+                        from utils.gemini_ats import GeminiATSScorer
                         builder = GeminiResumeBuilder()
                         st.session_state.tailored_resume = builder.build_resume(
                             resume_text=resume_text,
@@ -461,8 +461,8 @@ def render():
                         )
                         if (st.session_state.tailored_resume
                                 and not st.session_state.tailored_resume.startswith("Error")):
-                            det_scanner = ATSScanner()
-                            st.session_state.tailored_ats = det_scanner.scan(
+                            ai_scorer = GeminiATSScorer()
+                            st.session_state.tailored_ats = ai_scorer.analyze_resume(
                                 resume_text=st.session_state.tailored_resume,
                                 job_description=job_desc, job_title=job_title_val,
                             )
