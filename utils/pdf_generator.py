@@ -98,3 +98,77 @@ def markdown_to_pdf(markdown_text: str) -> bytes:
     pdf._add_content(markdown_text)
     # output() returns bytearray — convert to bytes for Streamlit compatibility
     return bytes(pdf.output())
+
+
+def markdown_to_docx(markdown_text: str) -> bytes:
+    """Convert markdown resume text to a Word document (.docx) bytes."""
+    try:
+        from docx import Document
+        from docx.shared import Pt, RGBColor, Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except ImportError as exc:
+        raise RuntimeError("python-docx is required: pip install python-docx") from exc
+
+    doc = Document()
+
+    # ── Page margins ──────────────────────────────────────────────────────────
+    for section in doc.sections:
+        section.top_margin    = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin   = Inches(1.0)
+        section.right_margin  = Inches(1.0)
+
+    def _strip_inline(text: str) -> str:
+        """Remove markdown bold/italic markers from inline text."""
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.+?)\*',     r'\1', text)
+        text = re.sub(r'__(.+?)__',     r'\1', text)
+        text = re.sub(r'_(.+?)_',       r'\1', text)
+        return text.strip()
+
+    for line in markdown_text.split('\n'):
+        stripped = line.strip()
+
+        if not stripped:
+            doc.add_paragraph('')  # blank spacer
+            continue
+
+        # H1 — candidate name
+        if stripped.startswith('# ') and not stripped.startswith('## '):
+            text = _strip_inline(stripped[2:])
+            p = doc.add_heading(text, level=1)
+            p.runs[0].font.size  = Pt(20)
+            p.runs[0].font.color.rgb = RGBColor(0x1E, 0x1E, 0x1E)
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+        # H2 — section headers
+        elif stripped.startswith('## '):
+            text = _strip_inline(stripped[3:]).upper()
+            p = doc.add_heading(text, level=2)
+            p.runs[0].font.size  = Pt(12)
+            p.runs[0].font.color.rgb = RGBColor(0x1F, 0x6F, 0xEB)  # blue accent
+
+        # H3 — job title / school
+        elif stripped.startswith('### '):
+            text = _strip_inline(stripped[4:])
+            p = doc.add_heading(text, level=3)
+            p.runs[0].font.size  = Pt(11)
+            p.runs[0].font.color.rgb = RGBColor(0x32, 0x32, 0x32)
+
+        # Bullet points
+        elif stripped.startswith('- ') or stripped.startswith('* ') or stripped.startswith('• '):
+            text = _strip_inline(stripped[2:])
+            p = doc.add_paragraph(style='List Bullet')
+            run = p.add_run(text)
+            run.font.size = Pt(10)
+
+        # Regular body text
+        else:
+            text = _strip_inline(stripped)
+            p = doc.add_paragraph()
+            run = p.add_run(text)
+            run.font.size = Pt(10)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
