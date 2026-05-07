@@ -308,32 +308,63 @@ def render():
                   </div>
                 </div>""", unsafe_allow_html=True)
             elif revised_score is not None:
-                delta       = (revised_score - orig_score) if orig_score is not None else None
-                delta_color = "#16A34A" if (delta is not None and delta >= 0) else "#DC2626"
-                delta_icon  = "🎉" if (delta is not None and delta >= 5) else ("✓" if delta is not None and delta >= 0 else "⚠")
-                delta_html  = (
-                    f'<span style="background:{delta_color};color:white;padding:3px 10px;'
-                    f'border-radius:20px;font-size:0.82rem;font-weight:700;">'
-                    f'{("+" if delta >= 0 else "")}{delta} {delta_icon}</span>'
-                ) if delta is not None else ""
-                orig_html = (
-                    f'<div style="font-size:1.8rem;font-weight:800;color:{score_color(orig_score) if orig_score else "#7BA88C"};">'
-                    f'{orig_score}</div><div style="font-size:0.7rem;color:var(--muted2);">/ 100</div>'
-                ) if orig_score is not None else '<div style="font-size:0.82rem;color:var(--muted2);">N/A</div>'
+                # ── Gather all metrics ─────────────────────────────────────────
+                orig_kw_match     = int(analysis.get("keyword_match", 0))        if analysis     else None
+                orig_interview    = int(analysis.get("interview_probability", 0)) if analysis     else None
+                revised_kw_match  = int(tailored_ats.get("keyword_score", 0))    if tailored_ats else None
+                # interview_probability is a Gemini field; ATSScanner estimates it
+                revised_interview = int(max(20, tailored_ats.get("keyword_score", 0) - 10)) if tailored_ats else None
 
-                st.markdown(f"""
-                <div class="card card-accent" style="margin-bottom:1rem;">
-                  <div class="eyebrow">Score improvement</div>
-                  <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;margin-top:0.5rem;">
-                    <div style="text-align:center;"><div style="font-size:0.72rem;color:var(--muted2);margin-bottom:4px;">Original</div>{orig_html}</div>
-                    <div style="font-size:1.25rem;color:var(--border2);">→</div>
-                    <div style="text-align:center;"><div style="font-size:0.72rem;color:var(--muted2);margin-bottom:4px;">Revised</div>
-                      <div style="font-size:1.8rem;font-weight:800;color:{score_color(revised_score)};">{revised_score}</div>
-                      <div style="font-size:0.7rem;color:var(--muted2);">/ 100</div>
-                    </div>
-                    <div>{delta_html}</div>
-                  </div>
-                  <div style="margin-top:0.75rem;">""", unsafe_allow_html=True)
+                def _delta_badge(orig, revised):
+                    """Return HTML for a coloured delta pill."""
+                    if orig is None or revised is None:
+                        return ""
+                    diff  = revised - orig
+                    color = "#16A34A" if diff >= 0 else "#DC2626"
+                    sign  = "+" if diff >= 0 else ""
+                    icon  = "🎉" if diff >= 5 else ("✓" if diff >= 0 else "⚠")
+                    return (
+                        f'<span style="background:{color};color:white;padding:2px 8px;'
+                        f'border-radius:20px;font-size:0.75rem;font-weight:700;">'
+                        f'{sign}{diff} {icon}</span>'
+                    )
+
+                def _metric_col(label, orig, revised, is_est=False):
+                    """Return HTML for a single before→after metric card."""
+                    orig_c    = score_color(orig)    if orig    is not None else "#7BA88C"
+                    revised_c = score_color(revised) if revised is not None else "#7BA88C"
+                    orig_val  = orig    if orig    is not None else "N/A"
+                    rev_val   = revised if revised is not None else "N/A"
+                    badge     = _delta_badge(orig, revised)
+                    est_lbl   = '<span style="font-size:0.55rem;color:var(--muted2);text-transform:lowercase;margin-left:4px;">(est.)</span>' if is_est else ''
+                    return f"""<div style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:10px;padding:0.75rem 1rem;background:var(--surface2);">
+  <div style="font-size:0.7rem;color:var(--muted2);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:0.5rem;">{label}{est_lbl}</div>
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <div style="text-align:center;">
+      <div style="font-size:0.65rem;color:var(--muted2);">Before</div>
+      <div style="font-size:1.6rem;font-weight:800;color:{orig_c};">{orig_val}</div>
+      <div style="font-size:0.62rem;color:var(--muted2);">/ 100</div>
+    </div>
+    <div style="font-size:1.1rem;color:var(--border2);">→</div>
+    <div style="text-align:center;">
+      <div style="font-size:0.65rem;color:var(--muted2);">After</div>
+      <div style="font-size:1.6rem;font-weight:800;color:{revised_c};">{rev_val}</div>
+      <div style="font-size:0.62rem;color:var(--muted2);">/ 100</div>
+    </div>
+    <div>{badge}</div>
+  </div>
+</div>"""
+
+                ats_col = _metric_col("ATS Score",        orig_score,    revised_score)
+                kw_col  = _metric_col("Keyword Match",    orig_kw_match, revised_kw_match)
+                int_col = _metric_col("Interview Chance", orig_interview, revised_interview, is_est=True)
+
+                st.markdown(f"""<div class="card card-accent" style="margin-bottom:1rem;">
+  <div class="eyebrow">Score improvement</div>
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem;">
+    {ats_col}{kw_col}{int_col}
+  </div>
+  <div style="margin-top:0.75rem;">""", unsafe_allow_html=True)
                 score_bar(revised_score, "Revised ATS score")
                 if orig_score is not None:
                     score_bar(orig_score, "Original ATS score")
@@ -358,11 +389,16 @@ def render():
                 except Exception as e:
                     st.warning(f"PDF export failed: {e}")
             with dl2:
-                st.download_button(
-                    "Download resume (.md)", data=tailored,
-                    file_name=f"tailored_resume_{job.get('title','job').replace(' ','_')}.md",
-                    mime="text/markdown",
-                )
+                try:
+                    from utils.pdf_generator import markdown_to_docx
+                    docx_bytes = markdown_to_docx(tailored)
+                    st.download_button(
+                        "Download resume (.docx)", data=docx_bytes,
+                        file_name=f"tailored_resume_{job.get('title','job').replace(' ','_')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                except Exception as e:
+                    st.warning(f"Word export failed: {e}")
 
     # ── Generate More section ─────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
