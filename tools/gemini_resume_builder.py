@@ -160,3 +160,107 @@ Output ONLY raw markdown — no intro text, no explanations, no code fences."""
             if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
                 return "⚠️ AI_LIMIT_HIT: Gemini API Quota Exceeded. Auto-revision is temporarily unavailable. Please try again later or upgrade your Gemini plan."
             return f"Error generating tailored resume: {e}"
+
+    def boost_ats_score(self, tailored_resume: str, job_info: dict, current_ats_results: dict) -> str:
+        """
+        Performs a focused second-pass enhancement on an already-tailored resume.
+        Preserves existing good content and only targets remaining gaps identified by ATSScanner.
+        """
+        if not self.llm:
+            return "Error: Gemini LLM is not configured properly."
+            
+        job_title = job_info.get("title", "Unknown Role")
+        job_company = job_info.get("company", "Unknown Company")
+        job_description = job_info.get("description", "")
+        
+        missing_kw = current_ats_results.get("missing_keywords", [])
+        fmt_issues = current_ats_results.get("formatting_issues", [])
+        current_score = current_ats_results.get("ats_score", 0)
+        
+        # Build low sub-scores string
+        low_scores = []
+        score_mapping = {
+            "Sections": current_ats_results.get("section_score", 0),
+            "Keywords": current_ats_results.get("keyword_match", 0),
+            "Formatting": current_ats_results.get("formatting_score", 0),
+            "Achievements": current_ats_results.get("achievements_score", 0),
+            "Length": current_ats_results.get("length_score", 0),
+            "Contact info": current_ats_results.get("contact_score", 0),
+        }
+        for name, score in score_mapping.items():
+            if score < 75:
+                low_scores.append(f"{name}: {score}/100")
+                
+        low_sub_scores_str = ", ".join(low_scores) if low_scores else "None"
+        
+        prompt = f"""You are an elite ATS optimization specialist and executive resume coach.
+You are performing a SECOND-PASS enhancement on an already-tailored resume.
+Do NOT rewrite from scratch — preserve all content that is working well.
+Only sharpen what the ATS scan shows is still underperforming.
+
+JOB: {job_title} at {job_company}
+JOB DESCRIPTION:
+{job_description}
+
+CURRENT TAILORED RESUME (already optimized once — improve from here):
+{tailored_resume}
+
+REMAINING GAPS FROM ATS SCAN (Current Score: {current_score}/100):
+  Still-missing keywords : {missing_kw}
+  Weak sub-scores        : {low_sub_scores_str}
+  Remaining issues       : {fmt_issues}
+
+BOOST STEPS — apply in order:
+
+[1 — SKILLS GAP CLOSE]
+Identify the top 3-5 skills/responsibilities from the JD that are still
+missing or weakly shown in the current resume. For each gap, weave it
+into an existing bullet or skill group using strong action verbs.
+Quantify impact where context allows (%, $, team size, time saved).
+
+[2 — BULLET SHARPENING]
+Review every experience bullet. Fix any bullet that:
+  - Starts with a weak verb -> rewrite the opening with a strong action verb
+  - Has no quantified metric -> add a concrete result (%, $, scale, speed)
+  - Is missing a JD keyword  -> integrate one naturally in context
+Keep 4-6 bullets per role, strongest first. First-person implied, no "I".
+
+[3 — KEYWORD SATURATION]
+Take the still-missing keywords: {missing_kw}
+Integrate each into the summary, skills, or experience in meaningful context.
+Never keyword-dump — every keyword must appear in a real sentence.
+Suggest any certifications commonly expected for this role
+(mark as "Add if applicable" if not in the original).
+
+[4 — FINAL POLISH]
+  - Standard ATS headings: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS, CERTIFICATIONS
+  - Bold all job titles and company names
+  - Subtly address any employment gaps
+  - Target 400-700 words total
+
+Output ONLY the improved raw markdown resume.
+No intro text, no explanations, no code fences."""
+
+        try:
+            messages = [
+                SystemMessage(content="You are an elite ATS optimization specialist and executive resume coach."),
+                HumanMessage(content=prompt)
+            ]
+            response = self.llm.invoke(messages)
+            content = response.content.strip()
+            
+            # Clean up if markdown wrapper was accidentally included
+            if content.startswith("```markdown"):
+                content = content[11:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+                
+            return content.strip()
+            
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "resource_exhausted" in err_msg:
+                return "⚠️ AI_LIMIT_HIT: Gemini API Quota Exceeded. Auto-revision is temporarily unavailable. Please try again later or upgrade your Gemini plan."
+            return f"Error boosting resume: {e}"

@@ -18,6 +18,13 @@ def render():
     """Render Screen 4 — analysis results across three tabs."""
     topbar("results")
 
+    if "boost_iteration" not in st.session_state:
+        st.session_state.boost_iteration = 0
+    if "boost_history" not in st.session_state:
+        st.session_state.boost_history = []
+    if "auto_revised_ats" not in st.session_state:
+        st.session_state.auto_revised_ats = None
+
     analysis     = st.session_state.analysis or {}
     cover_letter = st.session_state.cover_letter or ""
     job          = st.session_state.selected_job or {}
@@ -365,10 +372,88 @@ def render():
     {ats_col}{kw_col}{int_col}
   </div>
   <div style="margin-top:0.75rem;">""", unsafe_allow_html=True)
-                score_bar(revised_score, "Revised ATS score")
-                if orig_score is not None:
-                    score_bar(orig_score, "Original ATS score")
                 st.markdown("</div></div>", unsafe_allow_html=True)
+
+                # ── Score Journey Tracker ─────────────────────────────────────
+                stages = []
+                if orig_score is not None:
+                    stages.append(("Original", orig_score))
+                
+                auto_ats = st.session_state.auto_revised_ats or st.session_state.get("tailored_ats")
+                if auto_ats:
+                    stages.append(("Auto-Revised", int(auto_ats.get("overall_score", 0))))
+                
+                for boost in st.session_state.boost_history:
+                    stages.append((boost["label"], boost["ats_score"]))
+                
+                # Render the stages as a nice timeline
+                if len(stages) > 1:
+                    timeline_html = '<div style="display:flex; align-items:center; justify-content:space-between; margin:1.5rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">'
+                    for i, (label, score) in enumerate(stages):
+                        c = score_color(score)
+                        timeline_html += f'''<div style="text-align:center; position:relative; flex:1;">
+<div style="font-size:0.75rem; color:var(--muted); margin-bottom:0.4rem; text-transform:uppercase; font-weight:600;">{label}</div>
+<div style="font-size:1.5rem; font-weight:800; color:{c};">{score}</div>
+<div style="height:12px; width:12px; border-radius:50%; background:{c}; margin: 0.5rem auto 0 auto; box-shadow: 0 0 0 3px var(--background);"></div>
+</div>'''
+                        if i < len(stages) - 1:
+                            timeline_html += '''<div style="flex:1; height:2px; background:var(--border); margin-top:2.5rem;"></div>'''
+                    timeline_html += '</div>'
+                    st.markdown(timeline_html, unsafe_allow_html=True)
+
+                # ── Boost Button Section ──────────────────────────────────────
+                if st.session_state.boost_iteration >= 3 or revised_score >= 95:
+                    st.info("✅ **Resume is well-optimized.** Further automated boosts are unlikely to yield meaningful gains. Review the Score Journey and download your best version.")
+                else:
+                    st.markdown("""
+                    <div class="card card-accent" style="padding:1rem; margin-top:1rem; border-color:var(--blue);">
+                      <div class="eyebrow" style="color:var(--blue);">🚀 Boost ATS Score Further</div>
+                      <div style="font-size:0.85rem; color:var(--muted); margin: 0.5rem 0;">
+                        Not satisfied with the score? Run a focused second-pass rewrite to specifically target remaining missing keywords and gaps.
+                      </div>
+                    </div>""", unsafe_allow_html=True)
+                    if st.button(f"🚀 Run Boost {st.session_state.boost_iteration + 1}", type="primary"):
+                        with st.spinner("Analyzing current gaps and boosting..."):
+                            from utils.ats_scanner import ATSScanner
+                            from tools.gemini_resume_builder import GeminiResumeBuilder
+                            
+                            scanner = ATSScanner()
+                            builder = GeminiResumeBuilder()
+                            
+                            # Ensure we have the latest gaps
+                            current_ats = st.session_state.tailored_ats
+                            
+                            # Boost
+                            boosted_resume = builder.boost_ats_score(
+                                tailored_resume=st.session_state.tailored_resume,
+                                job_info={
+                                    "title": job.get("title", st.session_state.get("job_title", "Unknown")),
+                                    "company": job.get("company", ""),
+                                    "description": job.get("description", "")
+                                },
+                                current_ats_results=current_ats
+                            )
+                            
+                            if boosted_resume and not boosted_resume.startswith("⚠️ AI_LIMIT_HIT") and not boosted_resume.startswith("Error:"):
+                                # Re-scan
+                                new_ats = scanner.scan(
+                                    resume_text=boosted_resume,
+                                    job_description=job.get("description", ""),
+                                    job_title=job.get("title", "")
+                                )
+                                
+                                # Update state
+                                st.session_state.tailored_resume = boosted_resume
+                                st.session_state.tailored_ats = new_ats
+                                st.session_state.boost_iteration += 1
+                                st.session_state.boost_history.append({
+                                    "label": f"Boost {st.session_state.boost_iteration}",
+                                    "ats_score": new_ats.get("overall_score", 0),
+                                    "keyword_match": new_ats.get("keyword_score", 0)
+                                })
+                                st.rerun()
+                            else:
+                                st.error(boosted_resume or "Failed to boost resume.")
 
             if not st.session_state.get("ai_limit_hit"):
                 st.markdown("<hr>", unsafe_allow_html=True)
@@ -466,6 +551,7 @@ def render():
                                 resume_text=st.session_state.tailored_resume,
                                 job_description=job_desc, job_title=job_title_val,
                             )
+                            st.session_state.auto_revised_ats = st.session_state.tailored_ats
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -476,4 +562,7 @@ def render():
         st.session_state.cover_letter    = ""
         st.session_state.tailored_resume = ""
         st.session_state.tailored_ats    = None
+        st.session_state.auto_revised_ats = None
+        st.session_state.boost_iteration = 0
+        st.session_state.boost_history   = []
         st.rerun()
