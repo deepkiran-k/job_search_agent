@@ -320,7 +320,16 @@ def render():
                 orig_interview    = int(analysis.get("interview_probability", 0)) if analysis     else None
                 revised_kw_match  = int(tailored_ats.get("keyword_score", 0))    if tailored_ats else None
                 # interview_probability is a Gemini field; ATSScanner estimates it
-                revised_interview = int(max(20, tailored_ats.get("keyword_score", 0) - 10)) if tailored_ats else None
+                # Derive from overall_score (more stable than keyword_score alone) and
+                # clamp so it never falls below the original — a higher ATS score should
+                # never look like a worse interview chance.
+                if tailored_ats:
+                    _ats_val = tailored_ats.get("overall_score", 0)
+                    _raw_est = int(max(20, min(99, round(_ats_val * 0.85))))
+                    _floor   = orig_interview if orig_interview is not None else 0
+                    revised_interview = max(_raw_est, _floor)
+                else:
+                    revised_interview = None
 
                 def _delta_badge(orig, revised):
                     """Return HTML for a coloured delta pill."""
