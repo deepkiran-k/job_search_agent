@@ -210,6 +210,8 @@ REMAINING GAPS FROM ATS SCAN (Current Score: {current_score}/100):
   Weak sub-scores        : {low_sub_scores_str}
   Remaining issues       : {fmt_issues}
 
+CRITICAL: Your changes MUST NOT remove any existing keywords, achievements, or sections from the current tailored resume. The goal is STRICTLY ADDITIVE or slight reframing. Removing existing keywords will lower the ATS score.
+
 BOOST STEPS — apply in order:
 
 [1 — SKILLS GAP CLOSE]

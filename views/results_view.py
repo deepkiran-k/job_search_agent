@@ -393,17 +393,25 @@ def render():
                     stages.append(("Auto-Revised", int(auto_ats.get("overall_score", 0))))
                 
                 for boost in st.session_state.boost_history:
-                    stages.append((boost["label"], boost["ats_score"]))
+                    stages.append((boost["label"], boost["ats_score"], boost.get("reverted", False)))
                 
                 # Render the stages as a nice timeline
                 if len(stages) > 1:
                     timeline_html = '<div style="display:flex; align-items:center; justify-content:space-between; margin:1.5rem 0; padding: 1rem; background: var(--surface); border-radius: 8px; border: 1px solid var(--border);">'
-                    for i, (label, score) in enumerate(stages):
+                    for i, stage in enumerate(stages):
+                        label = stage[0]
+                        score = stage[1]
+                        reverted = stage[2] if len(stage) > 2 else False
                         c = score_color(score)
-                        timeline_html += f'''<div style="text-align:center; position:relative; flex:1;">
+                        
+                        rev_html = '<div style="font-size:0.6rem; color:var(--amber); margin-top:4px;">Reverted</div>' if reverted else ''
+                        opacity = "0.5" if reverted else "1.0"
+                        
+                        timeline_html += f'''<div style="text-align:center; position:relative; flex:1; opacity:{opacity};">
 <div style="font-size:0.75rem; color:var(--muted); margin-bottom:0.4rem; text-transform:uppercase; font-weight:600;">{label}</div>
 <div style="font-size:1.5rem; font-weight:800; color:{c};">{score}</div>
 <div style="height:12px; width:12px; border-radius:50%; background:{c}; margin: 0.5rem auto 0 auto; box-shadow: 0 0 0 3px var(--background);"></div>
+{rev_html}
 </div>'''
                         if i < len(stages) - 1:
                             timeline_html += '''<div style="flex:1; height:2px; background:var(--border); margin-top:2.5rem;"></div>'''
@@ -451,15 +459,26 @@ def render():
                                     job_title=job.get("title", "")
                                 )
                                 
-                                # Update state
-                                st.session_state.tailored_resume = boosted_resume
-                                st.session_state.tailored_ats = new_ats
+                                new_score = new_ats.get("overall_score", 0)
+                                old_score = current_ats.get("overall_score", 0)
+                                
                                 st.session_state.boost_iteration += 1
-                                st.session_state.boost_history.append({
+                                boost_record = {
                                     "label": f"Boost {st.session_state.boost_iteration}",
-                                    "ats_score": new_ats.get("overall_score", 0),
+                                    "ats_score": new_score,
                                     "keyword_match": new_ats.get("keyword_score", 0)
-                                })
+                                }
+                                
+                                if new_score < old_score:
+                                    boost_record["reverted"] = True
+                                    st.session_state.boost_history.append(boost_record)
+                                    st.toast(f"Boost {st.session_state.boost_iteration} yielded a lower score ({new_score}). Reverted to previous best ({old_score}).", icon="⚠️")
+                                else:
+                                    # Update state with new best
+                                    st.session_state.tailored_resume = boosted_resume
+                                    st.session_state.tailored_ats = new_ats
+                                    st.session_state.boost_history.append(boost_record)
+                                
                                 st.rerun()
                             else:
                                 st.error(boosted_resume or "Failed to boost resume.")
