@@ -144,7 +144,7 @@ def render():
         )
     with back_col:
         if st.session_state.get("direct_jd_mode"):
-            if st.button("← Change job"):
+            if st.button("← Change job description"):
                 st.session_state.step         = "search"
                 st.session_state.selected_job = None
                 st.session_state.analyzing    = False
