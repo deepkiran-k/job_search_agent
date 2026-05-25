@@ -19,6 +19,7 @@ An AI-powered job search and resume optimization platform. Search real jobs from
 - **SerpAPI** — Direct Google Jobs engine for high-accuracy fallback
 - **Concurrent Engine** — Scans all 4 sources simultaneously for maximum speed
 - **Streamlined UI** — "Google-like" entry point with persistent sidebar filters
+- **Direct Job Description Paste** — Bypasses job boards entirely; paste any arbitrary external listing (e.g., from LinkedIn or career portals) to trigger instant scoring, tailoring, and cover letter generation.
 
 ### 📊 Deterministic ATS Scoring
 Resume scoring engine that mirrors real ATS software:
@@ -64,9 +65,15 @@ AI-generated cover letters tailored to the specific job and your resume.
 ## 🏗️ Architecture
 
 ```
-app.py                          # Streamlit UI — 3-step pipeline
-├── config/
+app.py                          # Streamlit UI orchestrator
+├── core/
 │   └── settings.py             # API keys, Gemini LLM configuration
+├── views/                      # Streamlit UI screens & views
+│   ├── search_view.py          # Hero form supporting roles, companies, & direct paste
+│   ├── job_list_view.py        # Multi-source API search results list
+│   ├── analyze_view.py         # Resume file parsing and checklist review
+│   ├── results_view.py         # Tabbed analysis results and AI action actions
+│   └── components.py           # Reusable UI widgets and custom CSS design system
 ├── tools/
 │   ├── gemini_resume_builder.py  # AI resume tailoring (5-strategy prompt)
 │   └── gemini_tools.py           # AI cover letter generation
@@ -84,12 +91,12 @@ app.py                          # Streamlit UI — 3-step pipeline
 
 ### Flow
 ```
-Search Jobs (Multi-source Concurrent)
-        ↓
-  Select a Job
-        ↓
-Upload/Paste Resume
-        ↓
+Search / Select a Job   OR   Paste Job Description (Direct)
+                 \           /
+                  \         /
+                   ↓       ↓
+             Upload/Paste Resume
+                      ↓
 ┌─────────────────────────────────────────────┐
 │  ATS Scan (deterministic, zero API calls)   │
 │  → keyword, section, formatting, etc.       │
