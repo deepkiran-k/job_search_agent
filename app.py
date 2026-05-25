@@ -110,106 +110,141 @@ profile_avatar()
 search_clicked = False
 if st.session_state.step != "search":
     with st.sidebar:
-        st.markdown("## 🔍 Filters")
-        st.markdown('<hr style="margin:0.4rem 0 1rem;">', unsafe_allow_html=True)
+        if st.session_state.get("direct_jd_mode"):
+            st.markdown("## 📋 Direct Mode")
+            st.markdown('<hr style="margin:0.4rem 0 1rem;">', unsafe_allow_html=True)
 
-        # ── Search mode toggle ───────────────────────────────────────────────────
-        _current_mode = st.session_state.get("search_mode", "role")
-        sb_mode_col1, sb_mode_col2 = st.columns(2)
-        with sb_mode_col1:
-            if st.button(
-                "🔍 By Role",
-                key="sb_mode_role",
-                type="primary" if _current_mode == "role" else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.search_mode = "role"
-                st.rerun()
-        with sb_mode_col2:
-            if st.button(
-                "🏢 By Co.",
-                key="sb_mode_company",
-                type="primary" if _current_mode == "company" else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.search_mode = "company"
+            if st.button("New Analysis", use_container_width=True):
+                reset_app_state()
                 st.rerun()
 
-        st.markdown('<div style="margin-bottom:0.25rem;"></div>', unsafe_allow_html=True)
+            st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
 
-        # ── Mode-specific inputs ───────────────────────────────────────────────
-        if _current_mode == "company":
-            company_name_input = st.text_input(
-                "Company Name",
-                value=st.session_state.get("company_name", ""),
-                placeholder="e.g. Google, BASF...",
+            # ── Status ─────────────────────────────────────────────────────────────────
+            status_map = {
+                "analyze":    ("Upload your resume",    "#D97706"),
+                "results":    ("Analysis complete ✓",   "#16A34A"),
+            }
+            lbl, clr = status_map.get(st.session_state.step, ("Ready", "#7BA88C"))
+            st.markdown(
+                f'<div style="font-size:0.85rem;font-weight:600;color:{clr};padding:0.25rem 0;">{lbl}</div>',
+                unsafe_allow_html=True,
             )
-            job_title_input = st.text_input(
-                "Role / Keyword *(optional)*",
-                value=st.session_state.job_title,
-                placeholder="e.g. Software Engineer",
+
+            if st.session_state.selected_job:
+                j = st.session_state.selected_job
+                st.markdown(f"""
+                <div class="card" style="padding:0.7rem 1rem;margin-top:0.75rem;">
+                  <div class="eyebrow">Selected job</div>
+                  <div style="font-size:0.87rem;font-weight:700;color:var(--text);margin-top:3px;">{j.get('title','')}</div>
+                  <div style="font-size:0.78rem;color:var(--muted);">{j.get('company','')}</div>
+                </div>""", unsafe_allow_html=True)
+
+            st.markdown(
+                '<div style="font-size:0.7rem;color:var(--muted2);text-align:center;margin-top:1.5rem;">Powered by AI</div>',
+                unsafe_allow_html=True,
             )
         else:
-            company_name_input = ""
-            job_title_input = st.text_input(
-                "Job Title", value=st.session_state.job_title,
-                placeholder="e.g. Data Scientist",
+            st.markdown("## 🔍 Filters")
+            st.markdown('<hr style="margin:0.4rem 0 1rem;">', unsafe_allow_html=True)
+
+            # ── Search mode toggle ───────────────────────────────────────────────────
+            _current_mode = st.session_state.get("search_mode", "role")
+            sb_mode_col1, sb_mode_col2 = st.columns(2)
+            with sb_mode_col1:
+                if st.button(
+                    "🔍 By Role",
+                    key="sb_mode_role",
+                    type="primary" if _current_mode == "role" else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.search_mode = "role"
+                    st.rerun()
+            with sb_mode_col2:
+                if st.button(
+                    "🏢 By Co.",
+                    key="sb_mode_company",
+                    type="primary" if _current_mode == "company" else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.search_mode = "company"
+                    st.rerun()
+
+            st.markdown('<div style="margin-bottom:0.25rem;"></div>', unsafe_allow_html=True)
+
+            # ── Mode-specific inputs ───────────────────────────────────────────────
+            if _current_mode == "company":
+                company_name_input = st.text_input(
+                    "Company Name",
+                    value=st.session_state.get("company_name", ""),
+                    placeholder="e.g. Google, BASF...",
+                )
+                job_title_input = st.text_input(
+                    "Role / Keyword *(optional)*",
+                    value=st.session_state.job_title,
+                    placeholder="e.g. Software Engineer",
+                )
+            else:
+                company_name_input = ""
+                job_title_input = st.text_input(
+                    "Job Title", value=st.session_state.job_title,
+                    placeholder="e.g. Data Scientist",
+                )
+
+            location_input   = st.text_input("Location",   value=st.session_state.location,
+                                             placeholder="e.g. London, Remote")
+            _c_options = list(COUNTRY_OPTIONS.keys())
+            _c_idx = (
+                _c_options.index(st.session_state.get("country", "us"))
+                if st.session_state.get("country", "us") in _c_options else 0
+            )
+            country_code     = st.selectbox(
+                "Country", options=_c_options,
+                format_func=lambda x: COUNTRY_OPTIONS[x], index=_c_idx,
+            )
+            experience_input = st.selectbox(
+                "Experience Level",
+                ["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"],
+                index=["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"]
+                .index(st.session_state.experience),
             )
 
-        location_input   = st.text_input("Location",   value=st.session_state.location,
-                                         placeholder="e.g. London, Remote")
-        _c_options = list(COUNTRY_OPTIONS.keys())
-        _c_idx = (
-            _c_options.index(st.session_state.get("country", "us"))
-            if st.session_state.get("country", "us") in _c_options else 0
-        )
-        country_code     = st.selectbox(
-            "Country", options=_c_options,
-            format_func=lambda x: COUNTRY_OPTIONS[x], index=_c_idx,
-        )
-        experience_input = st.selectbox(
-            "Experience Level",
-            ["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"],
-            index=["0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"]
-            .index(st.session_state.experience),
-        )
+            search_clicked = st.button(
+                "Search Again", type="primary", use_container_width=True,
+                disabled=st.session_state.searching,
+            )
 
-        search_clicked = st.button(
-            "Search Again", type="primary", use_container_width=True,
-            disabled=st.session_state.searching,
-        )
+            if st.button("New Search", use_container_width=True):
+                reset_app_state()
+                st.rerun()
 
-        if st.button("New Search", use_container_width=True):
-            reset_app_state()
-            st.rerun()
+            st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
 
-        st.markdown('<hr style="margin:0.75rem 0;">', unsafe_allow_html=True)
+            # ── Status ─────────────────────────────────────────────────────────────────
+            status_map = {
+                "select_job": ("Pick a job to analyse", "#16A34A"),
+                "analyze":    ("Upload your resume",    "#D97706"),
+                "results":    ("Analysis complete ✓",   "#16A34A"),
+            }
+            lbl, clr = status_map.get(st.session_state.step, ("Ready", "#7BA88C"))
+            st.markdown(
+                f'<div style="font-size:0.85rem;font-weight:600;color:{clr};padding:0.25rem 0;">{lbl}</div>',
+                unsafe_allow_html=True,
+            )
 
-        # ── Status ─────────────────────────────────────────────────────────────────
-        status_map = {
-            "select_job": ("Pick a job to analyse", "#16A34A"),
-            "analyze":    ("Upload your resume",    "#D97706"),
-            "results":    ("Analysis complete ✓",   "#16A34A"),
-        }
-        lbl, clr = status_map.get(st.session_state.step, ("Ready", "#7BA88C"))
-        st.markdown(
-            f'<div style="font-size:0.85rem;font-weight:600;color:{clr};padding:0.25rem 0;">{lbl}</div>',
-            unsafe_allow_html=True,
-        )
+            if st.session_state.selected_job:
+                j = st.session_state.selected_job
+                st.markdown(f"""
+                <div class="card" style="padding:0.7rem 1rem;margin-top:0.75rem;">
+                  <div class="eyebrow">Selected job</div>
+                  <div style="font-size:0.87rem;font-weight:700;color:var(--text);margin-top:3px;">{j.get('title','')}</div>
+                  <div style="font-size:0.78rem;color:var(--muted);">{j.get('company','')}</div>
+                </div>""", unsafe_allow_html=True)
 
-        if st.session_state.selected_job:
-            j = st.session_state.selected_job
-            st.markdown(f"""
-            <div class="card" style="padding:0.7rem 1rem;margin-top:0.75rem;">
-              <div class="eyebrow">Selected job</div>
-              <div style="font-size:0.87rem;font-weight:700;color:var(--text);margin-top:3px;">{j.get('title','')}</div>
-              <div style="font-size:0.78rem;color:var(--muted);">{j.get('company','')}</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown(
-            '<div style="font-size:0.7rem;color:var(--muted2);text-align:center;margin-top:1.5rem;">Powered by AI</div>',
-            unsafe_allow_html=True,
-        )
+            st.markdown(
+                '<div style="font-size:0.7rem;color:var(--muted2);text-align:center;margin-top:1.5rem;">Powered by AI</div>',
+                unsafe_allow_html=True,
+            )
 else:
     # Provide variable bindings for the search-again trigger below
     job_title_input    = st.session_state.job_title

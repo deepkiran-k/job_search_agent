@@ -57,6 +57,11 @@ def save_analysis(
         keyword_match         = analysis.get("keyword_match")
         interview_probability = analysis.get("interview_probability")
 
+        # Copy and save job description inside analysis_json
+        analysis_copy = dict(analysis) if analysis else {}
+        if job.get("description"):
+            analysis_copy["job_description"] = job.get("description")
+
         conn = get_connection()
         conn.execute(
             """INSERT INTO analysis_history
@@ -83,7 +88,7 @@ def save_analysis(
                 1 if tailored_resume and tailored_resume.strip() else 0,
                 cover_letter or "",
                 tailored_resume or "",
-                json.dumps(analysis) if analysis else "{}",
+                json.dumps(analysis_copy),
                 search_params.get("job_title", ""),
                 search_params.get("company", ""),
                 search_params.get("location", ""),

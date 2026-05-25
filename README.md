@@ -19,6 +19,7 @@ An AI-powered job search and resume optimization platform. Search real jobs from
 - **SerpAPI** — Direct Google Jobs engine for high-accuracy fallback
 - **Concurrent Engine** — Scans all 4 sources simultaneously for maximum speed
 - **Streamlined UI** — "Google-like" entry point with persistent sidebar filters
+- **Direct Job Description Paste** — Bypasses job boards entirely; paste any arbitrary external listing (e.g., from LinkedIn or career portals) to trigger instant scoring, tailoring, and cover letter generation.
 
 ### 📊 Deterministic ATS Scoring
 Resume scoring engine that mirrors real ATS software:
@@ -64,9 +65,17 @@ AI-generated cover letters tailored to the specific job and your resume.
 ## 🏗️ Architecture
 
 ```
-app.py                          # Streamlit UI — 3-step pipeline
-├── config/
+app.py                          # Streamlit UI orchestrator
+├── core/
 │   └── settings.py             # API keys, Gemini LLM configuration
+├── views/                      # Streamlit UI screens & views
+│   ├── auth_view.py            # User registration & login view
+│   ├── search_view.py          # Hero form supporting roles, companies, & direct paste
+│   ├── job_list_view.py        # Multi-source API search results list
+│   ├── analyze_view.py         # Resume file parsing and checklist review
+│   ├── results_view.py         # Tabbed analysis results and AI action actions
+│   ├── history_view.py         # User personal dashboard for searches and reports
+│   └── components.py           # Reusable UI widgets and custom CSS design system
 ├── tools/
 │   ├── gemini_resume_builder.py  # AI resume tailoring (5-strategy prompt)
 │   └── gemini_tools.py           # AI cover letter generation
@@ -74,7 +83,10 @@ app.py                          # Streamlit UI — 3-step pipeline
     ├── ats_scanner.py           # Deterministic ATS scoring engine
     ├── gemini_ats.py            # Hybrid ATS: deterministic + Gemini qualitative
     ├── resume_parser.py         # PDF/DOCX text extraction + file analysis
-    ├── pdf_generator.py         # Markdown → PDF converter (fpdf2)
+    ├── pdf_generator.py         # Markdown → PDF/Word converter
+    ├── history_manager.py       # Local SQLite user history manager
+    ├── db.py                    # SQLite connection factory and schema
+    ├── auth.py                  # Password hashing and session verification
     ├── adzuna_client.py         # Adzuna job search API client
     ├── rapidapi_client.py       # RapidAPI JSearch client
     ├── indeed_client.py         # RapidAPI Indeed client (enriched descriptions)
@@ -84,12 +96,12 @@ app.py                          # Streamlit UI — 3-step pipeline
 
 ### Flow
 ```
-Search Jobs (Multi-source Concurrent)
-        ↓
-  Select a Job
-        ↓
-Upload/Paste Resume
-        ↓
+Search / Select a Job   OR   Paste Job Description (Direct)
+                 \           /
+                  \         /
+                   ↓       ↓
+             Upload/Paste Resume
+                      ↓
 ┌─────────────────────────────────────────────┐
 │  ATS Scan (deterministic, zero API calls)   │
 │  → keyword, section, formatting, etc.       │

@@ -108,6 +108,8 @@ def _render_analysis_card(rec: dict, user_id: str) -> None:
         badges += '&nbsp;<span class="tag tag-blue" style="font-size:0.68rem;">&#128203; Cover Letter</span>'
     if rec.get("has_tailored_resume"):
         badges += '&nbsp;<span class="tag tag-green" style="font-size:0.68rem;">&#10024; Tailored Resume</span>'
+    if rec.get("job_source") == "direct":
+        badges += '&nbsp;<span class="tag tag-yellow" style="font-size:0.68rem;">📋 Direct Paste</span>'
 
     # Card shell — simple box, no flex
     st.markdown(
@@ -211,19 +213,42 @@ def _restore_analysis(rec: dict) -> None:
     except Exception:
         pass
 
-    st.session_state.selected_job    = _build_job_dict(rec)
+    job_dict = _build_job_dict(rec)
+    if "job_description" in analysis:
+        job_dict["description"] = analysis["job_description"]
+
+    st.session_state.selected_job    = job_dict
     st.session_state.analysis        = analysis
     st.session_state.cover_letter    = rec.get("cover_letter") or ""
     st.session_state.tailored_resume = rec.get("tailored_resume") or ""
     st.session_state.tailored_ats    = analysis.get("tailored_ats")
     st.session_state.ai_limit_hit    = False
+    st.session_state.direct_jd_mode  = (rec.get("job_source") == "direct")
+    
+    if st.session_state.direct_jd_mode:
+        st.session_state.direct_jd_title = rec.get("job_title", "")
+        st.session_state.direct_jd_company = rec.get("job_company", "")
+        st.session_state.direct_jd_location = rec.get("job_location", "")
+        st.session_state.direct_jd_text = job_dict.get("description", "")
+        st.session_state.search_mode = "direct"
+
     st.session_state.step            = "results"
     st.rerun()
 
 
 def _restore_for_rescore(rec: dict) -> None:
     """Pre-fill the job context and jump to the analyze screen."""
-    st.session_state.selected_job    = _build_job_dict(rec)
+    analysis = {}
+    try:
+        analysis = json.loads(rec.get("analysis_json") or "{}")
+    except Exception:
+        pass
+
+    job_dict = _build_job_dict(rec)
+    if "job_description" in analysis:
+        job_dict["description"] = analysis["job_description"]
+
+    st.session_state.selected_job    = job_dict
     st.session_state.job_title       = rec.get("search_job_title", "")
     st.session_state.company_name    = rec.get("search_company", "")
     st.session_state.location        = rec.get("search_location", "")
@@ -234,6 +259,15 @@ def _restore_for_rescore(rec: dict) -> None:
     st.session_state.cover_letter    = ""
     st.session_state.tailored_resume = ""
     st.session_state.tailored_ats    = None
+    st.session_state.direct_jd_mode  = (rec.get("job_source") == "direct")
+
+    if st.session_state.direct_jd_mode:
+        st.session_state.direct_jd_title = rec.get("job_title", "")
+        st.session_state.direct_jd_company = rec.get("job_company", "")
+        st.session_state.direct_jd_location = rec.get("job_location", "")
+        st.session_state.direct_jd_text = job_dict.get("description", "")
+        st.session_state.search_mode = "direct"
+
     st.session_state.step            = "analyze"
     st.rerun()
 

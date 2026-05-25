@@ -45,6 +45,13 @@ def render():
         return
 
     job_banner(job)
+
+    desc = job.get("description", "")
+    if desc:
+        with st.expander("📄 View Job Description", expanded=False):
+            st.markdown(f'<div style="font-size:0.88rem;color:var(--text);white-space:pre-wrap;line-height:1.6;">{desc}</div>', unsafe_allow_html=True)
+        st.markdown('<div style="margin-bottom:0.75rem;"></div>', unsafe_allow_html=True)
+
     tab1, tab2, tab3 = st.tabs(["Resume Analysis", "Cover Letter", "Tailored Resume"])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -583,8 +590,15 @@ def render():
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Pick a different job"):
-        st.session_state.step            = "select_job"
+    if st.session_state.get("direct_jd_mode"):
+        back_lbl = "← Change job description"
+        target_step = "search"
+    else:
+        back_lbl = "← Pick a different job"
+        target_step = "select_job"
+
+    if st.button(back_lbl):
+        st.session_state.step            = target_step
         st.session_state.selected_job    = None
         st.session_state.analysis        = None
         st.session_state.cover_letter    = ""

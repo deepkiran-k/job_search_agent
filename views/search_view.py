@@ -289,10 +289,10 @@ def render():
             'Search by</p>',
             unsafe_allow_html=True,
         )
-        mode_col1, mode_col2, _ = st.columns([1, 1, 2])
+        mode_col1, mode_col2, mode_col3 = st.columns(3)
         with mode_col1:
             if st.button(
-                "\U0001f50d\u2002By Role",
+                "🔍 By Role",
                 key="mode_role_btn",
                 type="primary" if current_mode == "role" else "secondary",
                 use_container_width=True,
@@ -301,12 +301,21 @@ def render():
                 st.rerun()
         with mode_col2:
             if st.button(
-                "\U0001f3e2\u2002By Company",
+                "🏢 By Company",
                 key="mode_company_btn",
                 type="primary" if current_mode == "company" else "secondary",
                 use_container_width=True,
             ):
                 st.session_state.search_mode = "company"
+                st.rerun()
+        with mode_col3:
+            if st.button(
+                "📋 Paste a Job",
+                key="mode_direct_btn",
+                type="primary" if current_mode == "direct" else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.search_mode = "direct"
                 st.rerun()
 
         st.markdown('<div style="margin-bottom:0.35rem;"></div>', unsafe_allow_html=True)
@@ -315,7 +324,7 @@ def render():
         if current_mode == "company":
             # Company mode: company name is primary, role is optional hint
             _hero_company_name = st.text_input(
-                "\U0001f3e2 Company Name",
+                "🏢 Company Name",
                 value=st.session_state.get("company_name", ""),
                 placeholder="e.g. Google, Microsoft, BASF, McKinsey...",
             )
@@ -323,6 +332,29 @@ def render():
                 "Role / Keyword  *(optional — leave blank for all open roles)*",
                 value=st.session_state.job_title,
                 placeholder="e.g. Software Engineer, Data Analyst",
+            )
+        elif current_mode == "direct":
+            # Paste a Job mode: Job description text, title, company, location
+            _direct_title = st.text_input(
+                "📌 Job Title *",
+                value=st.session_state.get("direct_jd_title", ""),
+                placeholder="e.g. Senior Software Engineer",
+            )
+            _direct_company = st.text_input(
+                "🏢 Company Name *(optional)*",
+                value=st.session_state.get("direct_jd_company", ""),
+                placeholder="e.g. Acme Corp",
+            )
+            _direct_location = st.text_input(
+                "📍 Location *(optional)*",
+                value=st.session_state.get("direct_jd_location", ""),
+                placeholder="e.g. San Francisco, CA or Remote",
+            )
+            _direct_jd_text = st.text_area(
+                "📄 Job Description *",
+                value=st.session_state.get("direct_jd_text", ""),
+                height=250,
+                placeholder="Paste the full job description text here...",
             )
         else:
             # Role mode: original form, untouched
@@ -333,41 +365,44 @@ def render():
                 placeholder="e.g. Data Scientist, Product Manager",
             )
 
-        _c1, _c2, _c3 = st.columns([1, 1, 0.75])
-        with _c1:
-            _hero_location = st.text_input(
-                "Location", value=st.session_state.location,
-                placeholder="e.g. London, Remote",
-            )
-        with _c2:
-            _c_options = list(COUNTRY_OPTIONS.keys())
-            _c_idx = (
-                _c_options.index(st.session_state.get("country", "us"))
-                if st.session_state.get("country", "us") in _c_options
-                else 0
-            )
-            _hero_country = st.selectbox(
-                "Country", options=_c_options,
-                format_func=lambda x: COUNTRY_OPTIONS[x],
-                index=_c_idx, key="hero_country",
-            )
-        with _c3:
-            _exp_opts = ["0-1 yrs", "1-3 yrs", "3-5 yrs", "5-10 yrs", "10+ yrs"]
-            _exp_rev  = {
-                "0-1 years": "0-1 yrs", "1-3 years": "1-3 yrs",
-                "3-5 years": "3-5 yrs", "5-10 years": "5-10 yrs",
-                "10+ years": "10+ yrs",
-            }
-            _curr_exp = _exp_rev.get(st.session_state.experience, "3-5 yrs")
-            _exp_idx  = _exp_opts.index(_curr_exp) if _curr_exp in _exp_opts else 2
-            _hero_exp = st.selectbox(
-                "Experience", _exp_opts, index=_exp_idx, key="hero_exp",
-            )
+        if current_mode != "direct":
+            _c1, _c2, _c3 = st.columns([1, 1, 0.75])
+            with _c1:
+                _hero_location = st.text_input(
+                    "Location", value=st.session_state.location,
+                    placeholder="e.g. London, Remote",
+                )
+            with _c2:
+                _c_options = list(COUNTRY_OPTIONS.keys())
+                _c_idx = (
+                    _c_options.index(st.session_state.get("country", "us"))
+                    if st.session_state.get("country", "us") in _c_options
+                    else 0
+                )
+                _hero_country = st.selectbox(
+                    "Country", options=_c_options,
+                    format_func=lambda x: COUNTRY_OPTIONS[x],
+                    index=_c_idx, key="hero_country",
+                )
+            with _c3:
+                _exp_opts = ["0-1 yrs", "1-3 yrs", "3-5 yrs", "5-10 yrs", "10+ yrs"]
+                _exp_rev  = {
+                    "0-1 years": "0-1 yrs", "1-3 years": "1-3 yrs",
+                    "3-5 years": "3-5 yrs", "5-10 years": "5-10 yrs",
+                    "10+ years": "10+ yrs",
+                }
+                _curr_exp = _exp_rev.get(st.session_state.experience, "3-5 yrs")
+                _exp_idx  = _exp_opts.index(_curr_exp) if _curr_exp in _exp_opts else 2
+                _hero_exp = st.selectbox(
+                    "Experience", _exp_opts, index=_exp_idx, key="hero_exp",
+                )
 
         # ── Search button: label reflects mode ───────────────────────────────
         if current_mode == "company":
             cname_preview = _hero_company_name.strip() or "Company"
             btn_label = f"\U0001f50d Search {cname_preview} Jobs"
+        elif current_mode == "direct":
+            btn_label = "Analyse my resume →"
         else:
             btn_label = "Search Jobs"
 
@@ -378,6 +413,37 @@ def render():
             if current_mode == "company" and not _hero_company_name.strip():
                 st.error("\u26a0\ufe0f Please enter a company name to search.")
                 st.stop()
+
+            # Validate: direct mode requires title and description
+            if current_mode == "direct":
+                if not _direct_title.strip():
+                    st.error("⚠️ Please enter a job title.")
+                    st.stop()
+                if not _direct_jd_text.strip():
+                    st.error("⚠️ Please paste a job description.")
+                    st.stop()
+
+                # Build a synthetic selected_job
+                st.session_state.selected_job = {
+                    "id": "direct_paste",
+                    "title": _direct_title.strip(),
+                    "company": _direct_company.strip() or "Not specified",
+                    "location": _direct_location.strip() or "Remote",
+                    "description": _direct_jd_text.strip(),
+                    "url": "",
+                    "salary": "",
+                    "source": "direct",
+                }
+                # Save input values in session state to persist form state
+                st.session_state.direct_jd_title = _direct_title.strip()
+                st.session_state.direct_jd_company = _direct_company.strip()
+                st.session_state.direct_jd_location = _direct_location.strip()
+                st.session_state.direct_jd_text = _direct_jd_text.strip()
+
+                # Jump straight to analyze step
+                st.session_state.direct_jd_mode = True
+                st.session_state.step = "analyze"
+                st.rerun()
 
             exp_map = {
                 "0-1 yrs": "0-1 years", "1-3 yrs": "1-3 years",
