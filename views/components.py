@@ -60,8 +60,14 @@ APP_DEFAULTS = {
     "needs_enrichment": False,
     "ai_limit_hit": False,
     # ── Company search ────────────────────────────────────────────────────────
-    "search_mode": "role",    # "role" | "company"  — defaults to existing behaviour
+    "search_mode": "role",    # "role" | "company" | "direct"  — defaults to existing behaviour
     "company_name": "",       # company filter used when search_mode == "company"
+    # ── Direct JD paste ───────────────────────────────────────────────────────
+    "direct_jd_mode": False,
+    "direct_jd_text": "",
+    "direct_jd_title": "",
+    "direct_jd_company": "",
+    "direct_jd_location": "",
 }
 
 
@@ -146,8 +152,12 @@ def score_bar(score: int, label: str = ""):
 
 def topbar(current_step: str):
     """Render the sticky progress topbar with step pills and a Home button."""
-    steps  = ["search", "select_job", "analyze", "results"]
-    labels = ["Search", "Select job", "Analyze", "Results"]
+    if st.session_state.get("direct_jd_mode"):
+        steps  = ["search", "analyze", "results"]
+        labels = ["Paste Job", "Analyze", "Results"]
+    else:
+        steps  = ["search", "select_job", "analyze", "results"]
+        labels = ["Search", "Select job", "Analyze", "Results"]
     cur_idx = steps.index(current_step) if current_step in steps else 0
     pills_html = ""
     for i, (s, lbl) in enumerate(zip(steps, labels)):

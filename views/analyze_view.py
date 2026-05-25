@@ -36,6 +36,12 @@ def render():
         st.session_state.needs_enrichment = False
         st.rerun()
 
+    desc = jb.get("description", "")
+    if desc:
+        with st.expander("📄 View Job Description", expanded=False):
+            st.markdown(f'<div style="font-size:0.88rem;color:var(--text);white-space:pre-wrap;line-height:1.6;">{desc}</div>', unsafe_allow_html=True)
+        st.markdown('<div style="margin-bottom:0.75rem;"></div>', unsafe_allow_html=True)
+
     st.markdown(
         '<div style="font-size:0.9rem;font-weight:700;color:var(--text);margin-bottom:0.75rem;">Your resume</div>',
         unsafe_allow_html=True,
@@ -137,11 +143,18 @@ def render():
             use_container_width=True, disabled=st.session_state.analyzing,
         )
     with back_col:
-        if st.button("← Back to jobs"):
-            st.session_state.step         = "select_job"
-            st.session_state.selected_job = None
-            st.session_state.analyzing    = False
-            st.rerun()
+        if st.session_state.get("direct_jd_mode"):
+            if st.button("← Change job"):
+                st.session_state.step         = "search"
+                st.session_state.selected_job = None
+                st.session_state.analyzing    = False
+                st.rerun()
+        else:
+            if st.button("← Back to jobs"):
+                st.session_state.step         = "select_job"
+                st.session_state.selected_job = None
+                st.session_state.analyzing    = False
+                st.rerun()
 
     # ── Analysis trigger ──────────────────────────────────────────────────────
     if analyze_btn:
