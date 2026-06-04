@@ -47,8 +47,24 @@ for key, default in APP_DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
+def handle_sidebar_search_again(job_title, company_name, location, experience, country):
+    st.session_state.job_title       = job_title
+    st.session_state.company_name    = company_name
+    st.session_state.location        = location
+    st.session_state.experience      = experience
+    st.session_state.country         = country
+    st.session_state.jobs            = []
+    st.session_state.selected_job    = None
+    st.session_state.analysis        = None
+    st.session_state.cover_letter    = ""
+    st.session_state.tailored_resume = ""
+    st.session_state.tailored_ats    = None
+    st.session_state.error           = None
+    st.session_state.searching       = True
+    st.session_state.step            = "search"
+
+
 # ── Sidebar (rendered on all steps except the initial hero search) ────────────
-search_clicked = False
 if st.session_state.step != "search":
     with st.sidebar:
         if st.session_state.get("direct_jd_mode"):
@@ -150,9 +166,11 @@ if st.session_state.step != "search":
                 .index(st.session_state.experience),
             )
 
-            search_clicked = st.button(
+            st.button(
                 "Search Again", type="primary", use_container_width=True,
                 disabled=st.session_state.searching,
+                on_click=handle_sidebar_search_again,
+                args=(job_title_input, company_name_input, location_input, experience_input, country_code),
             )
 
             if st.button("New Search", use_container_width=True):
@@ -186,30 +204,7 @@ if st.session_state.step != "search":
                 '<div style="font-size:0.7rem;color:var(--muted2);text-align:center;margin-top:1.5rem;">Powered by AI</div>',
                 unsafe_allow_html=True,
             )
-else:
-    # Provide variable bindings for the search-again trigger below
-    job_title_input    = st.session_state.job_title
-    company_name_input = st.session_state.get("company_name", "")
-    location_input     = st.session_state.location
-    country_code       = st.session_state.get("country", "us")
-    experience_input   = st.session_state.experience
 
-# ── Search-again trigger from sidebar ────────────────────────────────────────
-if search_clicked:
-    st.session_state.job_title       = job_title_input
-    st.session_state.company_name    = company_name_input
-    st.session_state.location        = location_input
-    st.session_state.experience      = experience_input
-    st.session_state.country         = country_code
-    st.session_state.jobs            = []
-    st.session_state.selected_job    = None
-    st.session_state.analysis        = None
-    st.session_state.cover_letter    = ""
-    st.session_state.tailored_resume = ""
-    st.session_state.tailored_ats    = None
-    st.session_state.error           = None
-    st.session_state.searching       = True
-    st.rerun()
 
 # ── Route to the correct view module ─────────────────────────────────────────
 from views.search_view   import handle_search_trigger, render as _search_render    # noqa: E402
